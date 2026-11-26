@@ -1,0 +1,18 @@
+# macOS metadata (AppleDouble files appear on exFAT volumes)
+._*
+.DS_Store
+
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local, personal configuration: never commit (accounts, client IDs, tokens)
+.env
+.env.*
+!.env.example
+*.local.json
+local/
+
+# Spike output (may contain newsletter content)
+spikes/**/out/

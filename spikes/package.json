@@ -1,0 +1,9 @@
+{
+  "name": "broadsheet-spikes",
+  "private": true,
+  "type": "module",
+  "description": "Phase 0 throwaway experiments. Not production code.",
+  "dependencies": {
+    "@azure/msal-node": "^7.2.3"
+  }
+}

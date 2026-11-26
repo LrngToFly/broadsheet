@@ -465,9 +465,19 @@ Logs are written as structured JSON to `~/Library/Logs/Broadsheet/`.
 | **5. Ready to share** | Install script, `doctor`, fork-and-deploy guide, backups | Someone else can set up their own copy from the docs alone |
 
 **Biggest risks**, all tested in Phase 0:
-- **Microsoft sign-in redirects in an iOS standalone PWA.** Fallback: sign in in a normal Safari tab, or front the app with Cloudflare Access (email one-time code, nothing to install).
-- **Entra app registration may need a free Azure tenant** for personal Microsoft accounts.
+- **Microsoft sign-in redirects in an iOS standalone PWA.** ✅ Works (see below). Fallback, if a future iOS change breaks it: sign in in a normal Safari tab, or front the app with Cloudflare Access (email one-time code, nothing to install).
+- **Entra app registration may need a free Azure tenant** for personal Microsoft accounts. ✅ Confirmed: it does. An Azure free account creates the directory, and the subscription can then be cancelled; the registration keeps working.
 - **Gemma quality and speed on your newsletters.** If 12B isn't good enough, the options are a newer local model, or adding a cloud provider later through the pluggable interface.
+
+**Phase 0 results (2026-11-26):**
+
+| Spike | Result |
+|---|---|
+| (a) Entra app | ✅ Registered for personal Microsoft accounts, with public client flows on and an SPA redirect URI for the reader. No billing. |
+| (b) Mail and folders | ✅ Device-code sign-in, Inbox read, newsletter platform detection from headers, folder creation, message move, and OneDrive App Folder write/read. |
+| (c) iOS home-screen PWA | ✅ On iPhone, from the home-screen icon: sign-in redirect returns into the app (MSAL v5 with a `redirect.html` bridge page), silent token in milliseconds, App Folder read and write, and the session survives closing and reopening the app. The Mac read back the files the iPhone wrote. |
+| (d) Gemma | ✅ on 3 real newsletters (see [§5](#5-ai-gemma-via-ollama) for findings). The full 20-newsletter quality run waits until enough mail has arrived. |
+| (e) Activity sensing | ✅ Idle time, lock state, Low Power Mode, memory pressure, thermal state and load all read correctly. |
 
 ---
 

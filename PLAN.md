@@ -111,7 +111,7 @@ The agent supports two **mailbox modes**, set in Admin:
   - welcome emails with no article content.
 
   These are recognized from their senders and headers, and the fact that they don't look like an article. Admin lists what was skipped, in case one was a real post.
-- **Exclude rules** handle anything else you don't want, such as an author whose emails you keep but don't want in the paper. Conditions: sender address or domain, subject contains / matches, mailing-list ID, body contains.
+- **Exclude rules** handle anything else you don't want, such as an author whose emails you keep but don't want in the paper. Conditions: sender address or domain, subject contains / matches, mailing-list ID, body contains. These are the **Check** rules of [§4.3](#43-hiding-things-and-rules-in-plain-english), which also covers hiding items from the reader and rules written in plain English.
 - **Fixed sections:** any source or rule can send its emails straight to one section.
 
 #### In shared-mailbox mode
@@ -159,7 +159,7 @@ Duplicates are merged by canonical URL, falling back to title and date, so a pos
 When an item is older than the retention window (3–4 days) and you haven't saved it:
 
 - **Deleted:** its article text, cleaned HTML, summary, key points, cached images, and its files in OneDrive.
-- **Email:** untouched in the newsletter mailbox, in its section folder. That mailbox is your long-term record of the newsletters.
+- **Email:** untouched in the newsletter mailbox, in its section folder. That mailbox is your long-term record of the newsletters. (Emails of items you **hid** are in Deleted Items instead; see [§4.3](#43-hiding-things-and-rules-in-plain-english).)
 - **Kept:** only a small *preference record*, and only if you rated or moved the item: source, author, section, tags, date, title, link and your rating. No text. This is what lets the Broadsheet keep learning what you like ([§7.1](#71-what-is-kept-long-term-and-where)).
 - **Unrated items** leave nothing behind except a short-lived "already seen" ID, so the same post isn't processed twice.
 
@@ -168,11 +168,12 @@ When an item is older than the retention window (3–4 days) and you haven't sav
 Each run has two stages. **Stage A** is light and always runs. **Stage B** is the heavy AI work and runs only when the Mac is idle ([§6](#6-sharing-the-mac-politely)).
 
 #### Stage A — light (seconds, mostly network)
-1. **Collect ratings** and section corrections from `OneDrive/ratings/`, then delete the files.
+1. **Collect ratings**, section corrections, hides and rule requests from `OneDrive/ratings/`, apply them, then delete the files.
 2. **Fetch new mail** from the Inbox and `_Add` with a Graph *delta query*.
 3. **Decide what's included** ([§3.2](#32-choosing-which-emails-to-include)).
    - **Included** (in dedicated mode: everything not excluded, and not transactional or account mail): moved right away, to its section folder if the source has a fixed section, otherwise to `_Sorting` ([§4.1](#41-email-folders-mirror-the-sections)). New senders become sources marked **New**.
-   - **Account or transactional mail, or excluded:** left in the Inbox.
+   - **Account or transactional mail:** left in the Inbox.
+   - **Matches a Check rule** ([§4.3](#43-hiding-things-and-rules-in-plain-english)): moved to Deleted Items or left in the Inbox, as that rule says, and listed as hidden.
 4. **Poll the feeds** that are due ([§3.3](#33-following-by-url-direct-feeds)).
 5. **Clean up the content:**
    - Sanitize the HTML, and strip tracking pixels and boilerplate.
@@ -184,7 +185,8 @@ Each run has two stages. **Stage A** is light and always runs. **Stage B** is th
 8. **Publish right away.** New items appear with their opening paragraphs and a "summary pending" tag, so the news never waits for the AI.
 
 #### Stage B — AI (only when the Mac is idle)
-9. **Enrich each item** with Gemma ([§5](#5-ai-gemma-via-ollama)): summary, key points, section, tags, read time and a "why it's here" line.
+9. **Enrich each item** with Gemma ([§5](#5-ai-gemma-via-ollama)): summary, key points, section, tags, read time and a "why it's here" line. Gemma also checks the item against your **Instruction** rules and hides it if one applies ([§4.3](#43-hiding-things-and-rules-in-plain-english)).
+   - **Draft rule suggestions** from items you hid and rules you typed, with a preview of what each would hide.
 10. **File the email** from `_Sorting` into its section folder.
 11. **Rank and republish** ([§4](#4-sections-ranking--personalization)). Write the new item files, then swap `edition.json` in one step. Prune items older than the retention window ([§3.5](#35-after-the-retention-window)).
 12. **Write `status.json`**: last run, backlog, deferrals, errors and model used.
@@ -222,7 +224,7 @@ The Broadsheet/
   - **First-run adoption:** if a `The Broadsheet` folder already exists, Admin uses it rather than creating a duplicate.
 - **Optional mark as read:** a setting, off by default, marks filed emails as read.
 
-Graph access needed: `Mail.ReadWrite`, which covers reading, moving and managing folders. The agent never deletes mail and never sends mail.
+Graph access needed: `Mail.ReadWrite`, which covers reading, moving and managing folders. The agent never sends mail and never **permanently** deletes it. The only mail it removes is what you hide, or what your rules hide, and that goes to **Deleted Items**, where **Show it again** can restore it ([§4.3](#43-hiding-things-and-rules-in-plain-english)). Outlook may empty Deleted Items on its own schedule, depending on your Outlook settings.
 
 ### 4.2 Ranking
 
@@ -239,6 +241,51 @@ defaults: w_c = 0.45, w_a = 0.35, w_f = 0.20 (tunable in Admin)
 - **Exploration:** a small boost for unrated sources, so the Broadsheet doesn't narrow itself to only what it already knows you like.
 
 The **Front Page** shows the top items across all sections, and each section tab is ranked separately.
+
+### 4.3 Hiding things, and rules in plain English
+
+👎 and **Don't show things like this** are separate signals. 👎 means *rank this kind of thing lower*. **Hide** means *never show this kind of thing*, such as a Substack post that's only a link to a live video.
+
+#### Hiding an item (in the reader)
+1. On any item, tap **Don't show things like this**. The item disappears at once.
+2. A small sheet offers optional reasons. Tap one, or none:
+   - **Not an article** (video or live-stream link, podcast link, "thanks for subscribing")
+   - **Ad or promo**
+   - **Not my topic**
+   - **Not this author**
+3. An optional text box lets you say more, such as "These live-video posts are never worth it". On a phone you'd usually skip it; on an iPad or computer you might type a sentence.
+4. The email moves to **Deleted Items** in Outlook ([§4.1](#41-email-folders-mirror-the-sections)).
+
+#### From a hidden item to a rule
+- The next time the Mac is idle, Gemma looks at the hidden item, your reason and your note, and **drafts a rule**. For example: *"Hide Substack posts that are mainly a link to a live video and have little written text."*
+- The draft appears as a **suggestion** on the reader's **Rules** page, with a badge showing how many are waiting. Each suggestion shows **which items from the last 90 days it would have hidden**, so you can see whether it's too broad.
+- You **Approve**, **Edit** (change the wording, and Gemma redrafts it) or **Dismiss** it. Nothing beyond the one item you hid is hidden until you approve.
+- **Writing a rule from scratch:** the Rules page also has an **Add a rule** box. Type something like "Never show posts about crypto", and it goes through the same draft, preview and approve steps.
+
+#### Two kinds of rule, one list
+When Gemma drafts a rule, it decides which kind it can be:
+
+| Kind | Example | How it runs | Cost |
+|---|---|---|---|
+| **Check** | "From this sender, subject contains *is live*" | Simple conditions (sender, domain, subject, list ID, body text, links to, word count), tested in Stage A before any AI | Free, instant, the same every time |
+| **Instruction** | "Skip posts that are mostly an ad for the author's course" | Plain-English text added to Gemma's prompt in Stage B. Gemma reports which rule, if any, the item breaks. | A little extra time per item |
+
+- A rule applies to **all sources** or to **one source**. Per-source instructions also cover oddly laid-out newsletters, for example "In this newsletter, the article starts after *Today's story*; ignore the sponsor blocks."
+- Gemma prefers drafting a **Check** whenever one would do, because Checks are free and predictable. Instructions should stay few and specific: a dozen is fine, but a hundred would slow every item down.
+- The **exclude rules** from [§3.2](#32-choosing-which-emails-to-include) are simply Check rules. Each rule also says what happens to the email: **Deleted Items** (the default for rules made from the reader) or **leave in the Inbox** (for mail you want to keep but not see in the paper).
+- **Timing:** Checks act in Stage A, so matching items never appear. Instructions need Gemma, so a matching item can show as "summary pending" for a while before Stage B hides it.
+
+#### Seeing what was hidden
+- A **Hidden** list (on the Rules page) shows every item hidden in the current retention window and why, for example *"Hidden by: live-video rule"* or *"You hid this"*.
+- **Show it again** puts the item back in the paper and moves the email back from Deleted Items to its section folder. From there you can also edit or turn off the rule that caught it.
+- Each rule shows how many items it hid in the last 30 days, so an over-eager rule is easy to spot.
+
+#### Where rules are edited
+Rules can be viewed and edited in **both the reader and the Admin console**:
+- **SQLite on the Mac mini is the master copy.** The agent publishes the current rules and suggestions to `rules.json` in the OneDrive App Folder for the reader.
+- **The reader never changes rules directly.** It writes small request files (hide, approve, edit, dismiss, add), the same way it sends ratings. The agent applies them on its next Stage A run, within about 15 minutes, and drafts with Gemma once the Mac is idle.
+- **The Admin console** edits the database directly, and also has the full condition editor for Checks.
+- If the same rule is edited in two places, the later change wins, and the reader shows a note if its edit was replaced.
 
 ---
 
@@ -324,10 +371,10 @@ Everything the Broadsheet keeps for longer than the 3–4 day reading window:
 | # | Data | Why it's kept | Where it's stored | How long |
 |---|---|---|---|---|
 | 1 | **Sources**: email senders and followed feed URLs, with name, channel, fixed section, on/off status, latest post date and post counts | The list of what feeds the Broadsheet | SQLite on the Mac mini | Until you remove the source |
-| 2 | **Mailbox mode, and exclude/include rules** | Decides which emails are included | SQLite on the Mac mini | Until you delete the rule |
+| 2 | **Mailbox mode, and rules**: include rules, Check rules and plain-English Instruction rules, each with the wording you gave it ([§4.3](#43-hiding-things-and-rules-in-plain-english)) | Decides which emails are included, and what's hidden | SQLite on the Mac mini; the current list is also copied to `rules.json` in OneDrive so the reader can show it | Until you delete the rule. Dismissed suggestions are deleted. |
 | 3 | **Sections** and their Outlook folder IDs | Newspaper sections and mail filing | SQLite on the Mac mini | Until you change them |
 | 4 | **Settings**: ranking weights, retention, AI model choice, idle threshold and other politeness rules | Your configuration | SQLite on the Mac mini | Until you change them |
-| 5 | **Preference records**: for each item you rated or moved, its source, author, section, tags, title, link, date and your rating. **No article text.** | The raw history the ranking learns from. Kept so preferences can be recalculated if the ranking method improves. | SQLite on the Mac mini | Indefinitely; **Forget** in Admin deletes one, or all |
+| 5 | **Preference records**: for each item you rated, moved or hid, its source, author, section, tags, title, link, date, your rating, and for hides your reason and note. **No article text.** | The raw history the ranking learns from. Kept so preferences can be recalculated if the ranking method improves. | SQLite on the Mac mini | Indefinitely; **Forget** in Admin deletes one, or all |
 | 6 | **Learned preferences**: author affinity scores, tag/topic affinity scores, and your **reader profile** (a short text written by the AI describing your tastes) | What your ratings say about what you like | SQLite on the Mac mini | Recomputed continually; the reader profile keeps the last 4 versions |
 | 7 | **Already-seen IDs**: email message IDs and post URL hashes | Stops the same post being processed twice | SQLite on the Mac mini | 90 days |
 | 8 | **Saved items**: ones you chose **Save** for | You asked to keep them | SQLite + OneDrive (content kept) | Until you unsave them. The only content kept past the window, and only by your choice. |
@@ -339,7 +386,7 @@ Everything the Broadsheet keeps for longer than the 3–4 day reading window:
 **Not kept by the Broadsheet past the window:** article text, summaries, cleaned HTML, images, and AI scoring details.
 
 **Two things that last, but aren't Broadsheet data:**
-- **Your newsletter emails** stay in the newsletter mailbox. The Broadsheet only moves them into section folders and never deletes them.
+- **Your newsletter emails** stay in the newsletter mailbox. The Broadsheet moves them into section folders, and moves only hidden ones to Deleted Items.
 - **Each device's cached copy** of the edition is replaced as the edition updates.
 
 **Backups:** Time Machine covers the SQLite file. Admin also has **Export / Import** of 1–6 as a single JSON file, which is handy for moving to a new Mac.
@@ -352,10 +399,11 @@ The database file is `~/Library/Application Support/Broadsheet/broadsheet.db`.
 |---|---|---|
 | `sections` | id, name, sort_order, mail_folder_id, is_system (`_Sorting`, `_Add`, `Everything Else`) | Long term |
 | `sources` | id, channel (`email` \| `feed` \| `podcast`), display_name, author, sender_address, feed_url, site_url, platform, status (`pending` \| `enabled` \| `muted`), fixed_section_id, last_post_at, posts_30d, avg_rating | Long term |
-| `include_rules` | id, name, conditions (JSON: sender / domain / subject / list-id / body / category, AND/OR), fixed_section_id, move_mail, enabled, matches_30d | Long term |
+| `rules` | id, kind (`include` \| `check` \| `instruction`), wording (your plain-English text), conditions (JSON for include/check: sender / domain / subject / list-id / body / links-to / word count / category, AND/OR), instruction_text, scope_source_id (null = all sources), mail_action (`deleted_items` \| `leave`), fixed_section_id, status (`suggested` \| `active` \| `off`), origin (`hidden_item` \| `typed` \| `admin`), version, updated_at, updated_by, matches_30d | Long term |
+| `hidden` | item_id, rule_id or null (you hid it), reason, note, hidden_at | Same as the item (**3–4 days**); the lasting part is in `preference_records` |
 | `feed_state` | source_id, etag, last_modified, next_poll_at, poll_interval, last_error | Long term (no content) |
 | `items` | id, source_id, channel, message_id, mail_folder_id, title, author, published_at, url, content_path, content_origin (`email` \| `feed` \| `web`), is_teaser, section_id, section_source (`fixed` \| `ai` \| `user`), tags, summary, key_points, relevance, why_its_here, score, model, ai_status, saved | **3–4 days** (unless saved), then deleted |
-| `preference_records` | source_id, author, section_id, tags, title, url, published_at, rating (−1/0/+1), moved_to_section, rated_at | Long term |
+| `preference_records` | source_id, author, section_id, tags, title, url, published_at, rating (−1/0/+1), moved_to_section, hidden_reason, hidden_note, rated_at | Long term |
 | `author_affinity`, `tag_affinity` | key, score, n | Long term (recomputed) |
 | `reader_profile` | version, text, built_at, model | Last 4 versions |
 | `seen` | message_id or url_hash, first_seen_at | 90 days |
@@ -371,7 +419,8 @@ Apps/The Broadsheet/
   edition.json                 # manifest: sections, ranked item cards, generated_at, schema_version
   items/<id>.html              # sanitized full content
   images/<hash>.webp           # cached copies of newsletter images (§9)
-  ratings/<device>-<ts>.json   # PWA → agent: ratings, section moves, saves
+  ratings/<device>-<ts>.json   # PWA → agent: ratings, section moves, saves, hides, rule requests
+  rules.json                   # agent → PWA: your rules, suggestions waiting, and the Hidden list
   status.json                  # agent health / backlog for the PWA footer
 ```
 
@@ -383,7 +432,8 @@ Ratings are written as one small file per event, so two devices rating at the sa
 
 ### 8.1 Reader PWA
 - **Views:** Front Page, section tabs, item cards (title, source, author, age, read time, summary or "summary pending", "why it's here"), and a full-content reader with graphs and photos.
-- **Item controls:** 👍 👌 👎, **Move to section…** (the email follows), **Save** (exempt from expiry), Mark read, Open original.
+- **Item controls:** 👍 👌 👎, **Don't show things like this** (with optional reasons and a note), **Move to section…** (the email follows), **Save** (exempt from expiry), Mark read, Open original.
+- **Rules page** ([§4.3](#43-hiding-things-and-rules-in-plain-english)): suggestions waiting for approval (with a badge count and a preview of what each would hide), your active rules (edit, turn off, delete), **Add a rule** in plain English, and the **Hidden** list with **Show it again**.
 - **Offline:** the last edition is cached, and actions taken offline are queued and sent later.
 - **Display:** follows the system dark mode; adjustable text size; layouts for iPhone, iPad and desktop.
 - **Auth:** Microsoft sign-in (redirect flow) with the `Files.ReadWrite.AppFolder` scope only. The PWA can't see your mail.
@@ -400,7 +450,7 @@ Ratings are written as one small file per event, so two devices rating at the sa
 - **Email:**
   - Mailbox mode (dedicated or shared).
   - **New** sources (dedicated mode) or **Pending** suggestions (shared mode).
-  - The rule editor: exclude rules, or include rules in shared mode. Conditions are sender, domain, subject, list ID, body text and Outlook category, with **Test against last 90 days**.
+  - The rule editor: the same rules, suggestions and Hidden list as the reader's Rules page ([§4.3](#43-hiding-things-and-rules-in-plain-english)), plus the full condition editor for Check and include rules. Conditions are sender, domain, subject, list ID, body text, links to, word count and Outlook category, with **Test against last 90 days**.
   - **Skipped mail:** what was treated as account or transactional mail, with **Include this one** for mistakes.
   - Emails dropped into `_Add`.
 - **Data:** **Export / Import** of sources, rules, settings and preferences. **Forget** a rating, or forget all ratings to reset what the Broadsheet has learned. A size readout showing what's stored.
@@ -458,8 +508,8 @@ Logs are written as structured JSON to `~/Library/Logs/Broadsheet/`.
 | Phase | Scope | Done when |
 |---|---|---|
 | **0. Spikes** | (a) Register the Entra app. (b) Device-code sign-in to the **newsletter account**; read its mail, **create `The Broadsheet/…` folders and move a message** through Graph. (c) Microsoft sign-in redirect inside an **iOS home-screen PWA**, reading and writing the OneDrive App Folder. (d) **Gemma test:** summarize 20 real newsletters from the new account with Gemma 4 12B; measure quality, speed per item, memory use, and how reliable the structured output is. (e) **Activity sensing:** confirm the macOS commands for idle time, lock state, Low Power Mode and memory pressure report correctly. | Each spike works, or we choose a fallback |
-| **1. Prototype (Gemma)** | Monorepo, schema. Agent Stages A+B with Gemma via Ollama and **idle gating**. **Both channels:** the dedicated mailbox (include everything, skip transactional mail, exclude rules, the `_Add` folder) and direct feeds by URL. Retention pruning. Section folders in Outlook. PWA: sign-in, Front Page, sections, reader. Sources, rules and sections set in a config file for now. launchd at background priority. | Today's newsletters appear summarized on your phone and filed in Outlook, without you noticing the Mac working |
-| **2. Personalization** | Ratings and section moves round-trip, tag affinity, ranking, reader profile, retention, `status.json`, `broadsheet eval` | The order changes based on your ratings |
+| **1. Prototype (Gemma)** | Monorepo, schema. Agent Stages A+B with Gemma via Ollama and **idle gating**. **Both channels:** the dedicated mailbox (include everything, skip transactional mail, exclude rules, the `_Add` folder) and direct feeds by URL. Retention pruning. Section folders in Outlook. PWA: sign-in, Front Page, sections, reader. Sources, rules (Check and plain-English Instruction rules) and sections set in a config file for now. launchd at background priority. | Today's newsletters appear summarized on your phone and filed in Outlook, without you noticing the Mac working |
+| **2. Personalization** | Ratings and section moves round-trip, tag affinity, ranking, reader profile, retention, `status.json`, `broadsheet eval`. **Don't show things like this**, Gemma-drafted rule suggestions, and the reader's **Rules** page and **Hidden** list ([§4.3](#43-hiding-things-and-rules-in-plain-english)) | The order changes based on your ratings |
 | **3. Admin & sources** | SwiftUI Admin: sections and folders, sources, Follow by URL with preview, the full rule editor with testing, mailbox mode, New/Pending sources, skipped mail, data export and forget, AI, politeness, menu bar. Also: newsletter-like detection from content, best-version selection (email, feed or web page), staleness, Switch to feed, unsubscribe helper. | You manage everything without touching config files |
 | **4. Podcasts** | Subscription import, episode ranking, Listen section | Recommended episodes appear |
 | **5. Ready to share** | Install script, `doctor`, fork-and-deploy guide, backups | Someone else can set up their own copy from the docs alone |
@@ -541,6 +591,7 @@ The full step-by-step guide, `docs/DEPLOY.md`, ships with the code.
 9. **More readers:** "give to others" is read here as *they run their own copy*. Do you also want more than one reader on **your** copy, such as a spouse with their own ratings?
 10. ~~Local email archive~~: **none (decided).** Emails stay in Outlook; the Broadsheet keeps only sources, settings and preferences ([§7.1](#71-what-is-kept-long-term-and-where)).
 11. **First-install scan:** on first install, process the newsletter account's existing Inbox (the last *N* days), creating sources and filing the emails into section folders? Summaries would only be made for the most recent few days.
+12. ~~Hiding and rules~~: **decided** ([§4.3](#43-hiding-things-and-rules-in-plain-english)). Hide is separate from 👎; quick reasons plus an optional note; Gemma drafts a rule and you approve it; rules are editable in both the reader and Admin; hidden email goes to Deleted Items; a badge on the Rules page for waiting suggestions; new rules can also be typed from scratch.
 
 ## 14. Extra suggestions
 

@@ -1,0 +1,15 @@
+{
+  "name": "@broadsheet/shared",
+  "private": true,
+  "type": "module",
+  "description": "The data contract shared by the agent, the reader and (via JSON Schema) the Admin app.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  }
+}

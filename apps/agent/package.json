@@ -1,0 +1,17 @@
+{
+  "name": "@broadsheet/agent",
+  "private": true,
+  "type": "module",
+  "description": "The Broadsheet agent that runs on the Mac mini.",
+  "bin": {
+    "broadsheet": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "broadsheet": "node src/cli.ts"
+  },
+  "dependencies": {
+    "@broadsheet/shared": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

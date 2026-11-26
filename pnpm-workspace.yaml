@@ -1,0 +1,6 @@
+packages:
+  - packages/*
+  - apps/*
+  - spikes
+minimumReleaseAgeExclude:
+  - '@types/node@26.6.11'

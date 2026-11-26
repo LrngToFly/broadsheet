@@ -1,0 +1,65 @@
+{
+  "microsoft": {
+    "clientId": "00000000-0000-0000-0000-000000000000"
+  },
+  "mailbox": {
+    "mode": "dedicated",
+    "rootFolder": "The Broadsheet",
+    "markFiledAsRead": false
+  },
+  "sections": [
+    { "id": "current-events", "name": "Current Events" },
+    { "id": "financial", "name": "Financial & Retirement" },
+    { "id": "technology", "name": "Technology" },
+    { "id": "gardening", "name": "Gardening" },
+    { "id": "outdoors", "name": "Outdoors" },
+    { "id": "everything-else", "name": "Everything Else" }
+  ],
+  "sources": [
+    {
+      "id": "example-gardening-letter",
+      "channel": "email",
+      "name": "An example gardening newsletter",
+      "match": { "domain": "example-gardening.substack.com" },
+      "section": "gardening"
+    },
+    {
+      "id": "example-blog",
+      "channel": "feed",
+      "name": "An example blog followed by URL",
+      "url": "https://example.substack.com",
+      "section": "technology",
+      "enabled": false
+    }
+  ],
+  "rules": [
+    {
+      "id": "no-live-video",
+      "kind": "check",
+      "wording": "Don't show Substack posts that are just a link to a live video.",
+      "match": "all",
+      "conditions": [
+        { "field": "linksTo", "op": "contains", "value": "substack.com/live" },
+        { "field": "wordCount", "op": "lessThan", "value": 150 }
+      ],
+      "mail": "deleted-items"
+    },
+    {
+      "id": "no-course-ads",
+      "kind": "instruction",
+      "wording": "Skip posts that are mostly an ad for the author's course.",
+      "instruction": "Hide posts whose main purpose is to sell the author's own course, workshop or paid community.",
+      "mail": "deleted-items"
+    }
+  ],
+  "ai": {
+    "model": "gemma4:12b",
+    "numCtx": 16384
+  },
+  "politeness": {
+    "idleMinutes": 10,
+    "lockedCountsAsIdle": true
+  },
+  "retention": { "days": 4 },
+  "readerProfile": "Write a few sentences about what you like to read, e.g. retirement planning and markets, practical technology, vegetable gardening, backpacking trips."
+}

@@ -5,7 +5,7 @@ name: Deploy reader to GitHub Pages
 on:
   push:
     branches: [main]
-    paths: ["spikes/pwa/**", "spikes/package.json", "spikes/pnpm-lock.yaml", ".github/workflows/pages.yml"]
+    paths: ["spikes/pwa/**", "spikes/package.json", "pnpm-lock.yaml", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -20,9 +20,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: spikes
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -32,9 +29,9 @@ jobs:
         with:
           node-version: 26
           cache: pnpm
-          cache-dependency-path: spikes/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec vite build pwa
+        working-directory: spikes
         env:
           VITE_ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
           BASE_PATH: /${{ github.event.repository.name }}/

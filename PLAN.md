@@ -66,11 +66,11 @@ The PWA's per-person settings, mainly the Entra client ID, aren't secret. They'r
 
 | Component | Language / stack | Why |
 |---|---|---|
-| **Agent** (Mac mini) | **TypeScript on Node.js LTS (v24+)** | One language shared with the PWA, so the data contract is defined once. First-party SDKs for Microsoft sign-in (`@azure/msal-node`) and Graph, plus the official Ollama client (`ollama`). It also reads activity signals from built-in macOS tools ([§6](#6-sharing-the-mac-politely)). Mozilla's Readability for article extraction. TypeScript comes from the designer of C#. |
+| **Agent** (Mac mini) | **TypeScript on Node.js 26**, which runs `.ts` files directly | One language shared with the PWA, so the data contract is defined once. First-party SDKs for Microsoft sign-in (`@azure/msal-node`) and Graph, plus the official Ollama client (`ollama`). It also reads activity signals from built-in macOS tools ([§6](#6-sharing-the-mac-politely)). Mozilla's Readability for article extraction. TypeScript comes from the designer of C#. |
 | **Reader** (all devices) | **TypeScript + React + Vite, as a PWA** | React has the largest ecosystem and an official Microsoft sign-in wrapper (`@azure/msal-react`). `vite-plugin-pwa` adds offline support and home-screen install. |
 | **Admin console** (Mac mini) | **Swift + SwiftUI** | A native Mac app with a menu-bar status item, Keychain access and job control. Its declarative UI and data binding are close to WPF/XAML. The only Swift in the project, and not needed until Phase 3. |
 | **Shared data contract** | Zod schemas → JSON Schema → generated Swift `Codable` types | One source of truth for the edition format and the database records. |
-| **Database** | SQLite (WAL). Drizzle ORM + migrations in the agent, GRDB.swift in Admin | Embedded, zero administration, one file to back up. |
+| **Database** | SQLite (WAL). Node's built-in `node:sqlite` with plain SQL migrations in the agent (no native add-ons to build), GRDB.swift in Admin | Embedded, zero administration, one file to back up. Plain SQL is also the neutral contract between the TypeScript agent and the Swift Admin. **Drizzle ORM** was considered: its stable 0.x line needs the native `better-sqlite3` add-on, and its `node:sqlite` support is only in the long-running 1.0 beta. Revisit once Drizzle 1.0 is stable; switching is cheap because the schema is plain SQL. |
 | **AI** | **Ollama + Gemma 4 12B**, behind a pluggable `LlmProvider` interface | See [§5](#5-ai-gemma-via-ollama). |
 | **Scheduling** | `launchd` LaunchAgent (per-user) at background priority | See [§6](#6-sharing-the-mac-politely). |
 | **Secrets** | macOS Keychain | Holds the Microsoft sign-in tokens. |

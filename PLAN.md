@@ -254,7 +254,9 @@ All AI work runs on the Mac mini with **Gemma 4 12B** (`gemma4:12b`, installed 2
 - **Exception:** if Gemma was already loaded before the batch, the agent reuses that copy and **does not unload it**, so it never disrupts your own use of the same model.
 
 **How it's called:**
-- **Structured output:** each request passes a JSON schema in Ollama's `format` parameter (built from the same Zod schema as the data contract), so every response comes back as valid fields. These are the summary, key points, section, tags, interest score, read time and "why it's here".
+- **Structured output:** the prompt includes the JSON schema (built from the same Zod schema as the data contract). The agent **extracts and validates the reply in code** and retries once with the validation error. Ollama's built-in schema enforcement (`format`) isn't available for `gemma4:12b`'s compressed `nvfp4` weights (Phase 0 finding), and validating in code works with any provider anyway. Fields returned: summary, key points, section, tags, interest score, read time, "why it's here", and an `is_article` flag that catches promos and thank-you notes.
+- **Thinking off:** Gemma 4 "thinks" by default. Phase 0 showed thinking **on** was 2–6× slower (90–190 s versus 30–60 s per newsletter) with no better results, so the agent sends `think: false`.
+- **Measured speed (Phase 0, M4 / 24 GB):** about 30–60 s per newsletter (3–5K input tokens), about 20 tokens/s output, 7.8 GB while loaded. For around 40 newsletters a day, that's roughly 20–40 minutes of idle-time work.
 - **Context window:** the agent sets `num_ctx` explicitly, 16K by default and raised for long posts. The model allows up to 256K, but memory use grows with context, so it's kept modest. Ollama's default is much shorter and would otherwise cut long newsletters off **silently**. Text is converted to plain text first, which roughly halves its size. Posts still too long are summarized in sections, then combined.
 - **Reader profile:** a short text (a few hundred words) sent with each item, rebuilt weekly from your ratings.
 

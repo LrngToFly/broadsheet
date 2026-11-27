@@ -2,6 +2,7 @@
 // The agent writes item files first, then replaces edition.json in one step.
 import { z } from "zod";
 import { Section } from "./sections.ts";
+import { Rating } from "./actions.ts";
 
 export const EDITION_SCHEMA_VERSION = 1;
 
@@ -29,6 +30,11 @@ export const ItemCard = z.object({
   image: z.string().nullable(),
   /** Path of the full article, e.g. "items/<id>.html". */
   content: z.string(),
+  /** Your rating, once the agent has collected it (the reader shows its own unsent changes on top). */
+  rating: Rating.nullable().default(null),
+  saved: z.boolean().default(false),
+  /** The section was chosen by you (Move to section), not the AI. */
+  sectionByYou: z.boolean().default(false),
 });
 export type ItemCard = z.infer<typeof ItemCard>;
 

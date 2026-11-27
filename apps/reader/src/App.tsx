@@ -4,15 +4,17 @@ import type { AccountInfo } from "@azure/msal-browser";
 import type { Edition, ItemCard } from "@broadsheet/shared";
 import { NeedsSignIn, signIn, signOut, startAuth } from "./auth.ts";
 import { clearData, imageUrl, loadArticle, loadEdition, loadStatus, localMode, prefetch, type Status } from "./data.ts";
+import { applyOverlay, useReaderActions, type NewAction } from "./actions.ts";
 
 // ---- Routing: #/ (Front Page), #/s/<section>, #/i/<item> ---------------------------------------------
 
-type Route = { page: "front" } | { page: "section"; id: string } | { page: "item"; id: string };
+type Route = { page: "front" } | { page: "saved" } | { page: "section"; id: string } | { page: "item"; id: string };
 
 function parseRoute(hash: string): Route {
   const [, kind, id] = hash.replace(/^#/, "").split("/");
   if (kind === "s" && id) return { page: "section", id: decodeURIComponent(id) };
   if (kind === "i" && id) return { page: "item", id: decodeURIComponent(id) };
+  if (kind === "saved") return { page: "saved" };
   return { page: "front" };
 }
 
@@ -57,14 +59,18 @@ function CachedImage({ path, className, alt = "" }: { path: string; className?: 
 
 // ---- Cards -------------------------------------------------------------------------------------------
 
-function Card({ item, lead = false }: { item: ItemCard; lead?: boolean }) {
+const RATING_ICON: Record<string, string> = { "1": "👍", "0": "👌", "-1": "👎" };
+
+function Card({ item, lead = false, read = false }: { item: ItemCard; lead?: boolean; read?: boolean }) {
   return (
-    <a className={`card${lead ? " lead" : ""}`} href={`#/i/${encodeURIComponent(item.id)}`}>
+    <a className={`card${lead ? " lead" : ""}${read ? " read" : ""}`} href={`#/i/${encodeURIComponent(item.id)}`}>
       {lead && item.image && <CachedImage path={item.image} className="card-image" />}
       <div className="card-body">
         <h2>{item.title}</h2>
         <p className="meta">
           {byline(item)} · {ago(item.publishedAt)} · {item.readMinutes} min read
+          {item.rating !== null && <span className="mark"> · {RATING_ICON[String(item.rating)]}</span>}
+          {item.saved && <span className="mark"> · ★</span>}
         </p>
         {item.status === "summarized" ? <p className="summary">{item.summary}</p> : <p className="summary pending">{item.opening}</p>}
         {item.status === "pending" && <span className="tag pending-tag">summary pending</span>}
@@ -75,12 +81,12 @@ function Card({ item, lead = false }: { item: ItemCard; lead?: boolean }) {
   );
 }
 
-function ItemList({ items }: { items: ItemCard[] }) {
-  if (!items.length) return <p className="empty">Nothing here right now.</p>;
+function ItemList({ items, read, empty = "Nothing here right now." }: { items: ItemCard[]; read: Set<string>; empty?: string }) {
+  if (!items.length) return <p className="empty">{empty}</p>;
   return (
     <div className="list">
       {items.map((i, n) => (
-        <Card key={i.id} item={i} lead={n === 0} />
+        <Card key={i.id} item={i} lead={n === 0} read={read.has(i.id)} />
       ))}
     </div>
   );
@@ -88,7 +94,36 @@ function ItemList({ items }: { items: ItemCard[] }) {
 
 // ---- Article -----------------------------------------------------------------------------------------
 
-function Article({ item }: { item: ItemCard }) {
+type Act = (a: NewAction) => void;
+
+function ActionBar({ item, sections, act, read, markRead }: { item: ItemCard; sections: { id: string; name: string }[]; act: Act; read: boolean; markRead: (id: string, r: boolean) => void }) {
+  const rate = (r: -1 | 0 | 1) => act({ type: "rate", itemId: item.id, rating: item.rating === r ? null : r });
+  return (
+    <div className="actions">
+      <div className="rate" role="group" aria-label="Rate this">
+        {([1, 0, -1] as const).map((r) => (
+          <button key={r} className={item.rating === r ? "on" : ""} aria-pressed={item.rating === r} onClick={() => rate(r)} title={{ 1: "More like this", 0: "It was fine", "-1": "Less like this" }[r]}>
+            {RATING_ICON[String(r)]}
+          </button>
+        ))}
+      </div>
+      <button className={item.saved ? "on" : ""} aria-pressed={item.saved} onClick={() => act({ type: "save", itemId: item.id, saved: !item.saved })}>
+        {item.saved ? "★ Saved" : "☆ Save"}
+      </button>
+      <select aria-label="Move to section" value="" onChange={(e) => e.target.value && act({ type: "move", itemId: item.id, section: e.target.value })}>
+        <option value="">Move to…</option>
+        {sections.filter((s) => s.id !== item.section).map((s) => (
+          <option key={s.id} value={s.id}>{s.name}</option>
+        ))}
+      </select>
+      <button className="link" onClick={() => markRead(item.id, !read)}>{read ? "Mark unread" : "Mark read"}</button>
+    </div>
+  );
+}
+
+function Article({ item, sections, act, read, markRead }: { item: ItemCard; sections: { id: string; name: string }[]; act: Act; read: boolean; markRead: (id: string, r: boolean) => void }) {
+  // Opening an article counts as reading it.
+  useEffect(() => markRead(item.id, true), [item.id, markRead]);
   const body = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,7 +158,10 @@ function Article({ item }: { item: ItemCard }) {
       <h1>{item.title}</h1>
       <p className="meta">
         {byline(item)} · {new Date(item.publishedAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · {item.readMinutes} min read
+        {" · "}
+        <a href={`#/s/${item.section}`}>{sections.find((s) => s.id === item.section)?.name ?? item.section}</a>
       </p>
+      <ActionBar item={item} sections={sections} act={act} read={read} markRead={markRead} />
       {item.status === "summarized" && (
         <aside className="brief">
           <p>{item.summary}</p>
@@ -138,6 +176,7 @@ function Article({ item }: { item: ItemCard }) {
         </aside>
       )}
       {error ? <p className="error">Couldn't load this article ({error}). It may not be available offline yet.</p> : <div className="article-body" ref={body} />}
+      <ActionBar item={item} sections={sections} act={act} read={read} markRead={markRead} />
       {item.url && (
         <p className="original">
           <a href={item.url} target="_blank" rel="noopener noreferrer">
@@ -197,10 +236,18 @@ export function App() {
     return () => document.removeEventListener("visibilitychange", on);
   }, [state, load]);
 
+  const rawEdition = state.kind === "ready" ? state.edition : null;
+  const { overlay, act, waiting, read, markRead } = useReaderActions(rawEdition);
+  // The edition with your own not-yet-synced changes on top.
+  const edition = useMemo(
+    () => (rawEdition ? { ...rawEdition, items: rawEdition.items.map((i) => applyOverlay(i, overlay.get(i.id))) } : null),
+    [rawEdition, overlay],
+  );
+
   const sectionsWithItems = useMemo(() => {
-    if (state.kind !== "ready") return [];
-    return state.edition.sections.filter((s) => state.edition.items.some((i) => i.section === s.id));
-  }, [state]);
+    if (!edition) return [];
+    return edition.sections.filter((s) => edition.items.some((i) => i.section === s.id));
+  }, [edition]);
 
   if (state.kind === "starting") return <div className="splash">The Broadsheet</div>;
 
@@ -216,9 +263,9 @@ export function App() {
     );
   }
 
-  const edition = state.kind === "ready" ? state.edition : null;
   const item = route.page === "item" && edition ? edition.items.find((i) => i.id === route.id) : undefined;
-  const active = route.page === "section" ? route.id : route.page === "front" ? "front" : null;
+  const active = route.page === "section" ? route.id : route.page === "front" || route.page === "saved" ? route.page : null;
+  const saved = edition ? edition.items.filter((i) => i.saved) : [];
 
   return (
     <>
@@ -238,6 +285,7 @@ export function App() {
                 {s.name}
               </a>
             ))}
+            {saved.length > 0 && <a href="#/saved" className={active === "saved" ? "on" : ""}>★ Saved</a>}
           </nav>
         )}
       </header>
@@ -245,9 +293,11 @@ export function App() {
       <main>
         {state.kind === "loading" && <p className="empty">Fetching today's edition…</p>}
         {state.kind === "error" && <p className="error">Couldn't load the edition: {state.message}</p>}
-        {edition && route.page === "front" && <ItemList items={edition.items.slice(0, 20)} />}
-        {edition && route.page === "section" && <ItemList items={edition.items.filter((i) => i.section === route.id)} />}
-        {edition && route.page === "item" && (item ? <Article item={item} /> : <p className="empty">That article has expired. <a href="#/">Back to the Front Page</a></p>)}
+        {edition && route.page === "front" && <ItemList items={edition.items.slice(0, 20)} read={read} />}
+        {edition && route.page === "section" && <ItemList items={edition.items.filter((i) => i.section === route.id)} read={read} />}
+        {edition && route.page === "saved" && <ItemList items={saved} read={read} empty="Nothing saved. Saved articles are kept after the others expire." />}
+        {edition && route.page === "item" &&
+          (item ? <Article item={item} sections={edition.sections} act={act} read={read.has(item.id)} markRead={markRead} /> : <p className="empty">That article has expired. <a href="#/">Back to the Front Page</a></p>)}
       </main>
 
       {state.kind === "ready" && (
@@ -256,6 +306,7 @@ export function App() {
             Edition updated {ago(state.edition.generatedAt)}
             {state.offline && " · offline copy"}
             {state.status && state.status.pending > 0 && ` · ${state.status.pending} waiting for a summary`}
+            {waiting > 0 && ` · ${waiting} change${waiting === 1 ? "" : "s"} waiting to sync`}
           </p>
           <p>
             <button

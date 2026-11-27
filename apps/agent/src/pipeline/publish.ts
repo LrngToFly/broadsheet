@@ -99,6 +99,9 @@ export async function publish(opts: {
       score: score({ publishedAt: r.published_at, interest: summarized ? r.interest : null }, now, config),
       image: r.image,
       content: `items/${r.id}.html`,
+      rating: r.rating ?? null,
+      saved: Boolean(r.saved),
+      sectionByYou: r.section_source === "user",
     });
   }
 

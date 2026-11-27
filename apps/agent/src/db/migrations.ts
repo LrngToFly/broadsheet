@@ -120,4 +120,28 @@ export const migrations: string[] = [
   /* 3: remember each item's cached images, so unused ones can be deleted from OneDrive (M5) */ `
   ALTER TABLE items ADD COLUMN images_json TEXT;
   `,
+
+  /* 4: ratings and preference records (Phase 2) */ `
+  ALTER TABLE items ADD COLUMN rating INTEGER CHECK (rating IN (-1, 0, 1));
+  ALTER TABLE items ADD COLUMN rated_at TEXT;
+
+  -- Long-term (PLAN.md §7.1 row 5): what each rated, moved or hidden item was, without its text.
+  -- Kept after the item itself expires; the ranking learns from it.
+  CREATE TABLE preference_records (
+    item_id          TEXT PRIMARY KEY,
+    source_id        TEXT NOT NULL,
+    author           TEXT,
+    section_id       TEXT,
+    tags_json        TEXT NOT NULL DEFAULT '[]',
+    title            TEXT NOT NULL,
+    url              TEXT,
+    published_at     TEXT NOT NULL,
+    rating           INTEGER CHECK (rating IN (-1, 0, 1)),
+    moved_to_section TEXT,
+    hidden_reason    TEXT,
+    hidden_note      TEXT,
+    updated_at       TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX preference_records_source ON preference_records(source_id);
+  `,
 ];

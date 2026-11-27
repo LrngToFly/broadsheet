@@ -20,6 +20,7 @@ import { publish } from "./pipeline/publish.ts";
 import { stageAFeeds } from "./pipeline/stage-a-feeds.ts";
 import { discoverFeed } from "./feeds/feed.ts";
 import { stageB } from "./pipeline/stage-b.ts";
+import { applyReaderActions } from "./pipeline/reader-actions.ts";
 import { OllamaProvider, ollamaStatus } from "./ai/ollama.ts";
 import { acquireLock, keepAwakeWhileRunning, LOG_FILE, rotateLogs } from "./housekeeping.ts";
 import * as launchd from "./launchd.ts";
@@ -262,7 +263,14 @@ async function runLocked(opts: { stage?: string; dryRun: boolean; force: boolean
     const counts: Record<string, unknown> = {};
     let deferred: string | null = null;
 
-    // Stage A: light, always runs.
+    // Stage A: light, always runs. First, what you did in the reader since the last run.
+    if (stage !== "b" && !dryRun) {
+      const acts = await applyReaderActions({ db, appFolder, mail });
+      if (acts.files) console.log(`📱 ${acts.applied} reader action(s) applied from ${acts.files} file(s)${acts.ignored ? `, ${acts.ignored} for expired items ignored` : ""}.`);
+      for (const e of acts.errors) console.log(`  ❌ ${e}`);
+      errors.push(...acts.errors);
+      counts.readerActions = acts.applied;
+    }
     if (stage !== "b") {
       const r = await stageAEmail({ mail, db, config, contentDir: p.content, dryRun });
       if (!r.outcomes.length) console.log("No new email.");

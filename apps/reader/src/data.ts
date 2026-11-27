@@ -50,6 +50,20 @@ async function stable(path: string): Promise<Response> {
   return res;
 }
 
+/** Write a small JSON file to the App Folder (the reader's only way to talk to the agent). */
+export async function putJson(path: string, value: unknown): Promise<void> {
+  if (localMode) {
+    console.info("local mode: not sending", path, value);
+    return;
+  }
+  const res = await fetch(`${GRAPH}${path.split("/").map(encodeURIComponent).join("/")}:/content`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${await token()}`, "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
+  if (!res.ok) throw new Error(`${path}: ${res.status}`);
+}
+
 export async function loadEdition(): Promise<{ edition: Edition; offline: boolean }> {
   const { res, fromCache } = await fresh("edition.json");
   return { edition: Edition.parse(await res.json()), offline: fromCache };

@@ -13,13 +13,14 @@ import { Auth, NotSignedInError } from "./microsoft/auth.ts";
 import { Graph } from "./microsoft/graph.ts";
 import { checkFolders, ensureFolders, type FolderReport } from "./microsoft/mail-folders.ts";
 import { AppFolder } from "./microsoft/onedrive.ts";
-import { ollamaStatus } from "./ai/ollama.ts";
 import { aiMayRun, sampleActivity } from "./activity.ts";
 import { Mail } from "./microsoft/mail.ts";
 import { stageAEmail, type EmailOutcome } from "./pipeline/stage-a-email.ts";
 import { publish } from "./pipeline/publish.ts";
 import { stageAFeeds } from "./pipeline/stage-a-feeds.ts";
 import { discoverFeed } from "./feeds/feed.ts";
+import { stageB } from "./pipeline/stage-b.ts";
+import { OllamaProvider, ollamaStatus } from "./ai/ollama.ts";
 
 const p = paths();
 const here = dirname(fileURLToPath(import.meta.url));
@@ -220,32 +221,79 @@ function printOutcomes(outcomes: EmailOutcome[], dryRun: boolean) {
   }
 }
 
-async function run(stage: string | undefined, dryRun: boolean) {
-  if (stage && stage !== "a") throw new Error(`Only stage "a" exists so far (got "${stage}").`);
+async function run(opts: { stage?: string; dryRun: boolean; force: boolean; limit?: number }) {
+  const { stage, dryRun } = opts;
+  if (stage && stage !== "a" && stage !== "b") throw new Error(`Unknown stage "${stage}" (use a or b).`);
+  if (dryRun && stage === "b") throw new Error("--dry-run is for stage a only.");
   await withConfigAndDb(async (config, db) => {
-    const { graph } = services(config);
+    const { graph, appFolder } = services(config);
+    const mail = new Mail(graph);
     const started = new Date().toISOString();
-    const r = await stageAEmail({ mail: new Mail(graph), db, config, contentDir: p.content, dryRun });
-    if (!r.outcomes.length) console.log("No new email.");
-    printOutcomes(r.outcomes, dryRun);
-    const c = r.counts;
-    console.log(`\n${dryRun ? "Dry run (nothing moved or saved): " : ""}${c.included} included, ${c.skipped} left in Inbox, ${c.hidden} hidden, ${c.newSources} new sources, ${c.errors} errors.`);
-    if (dryRun) return;
+    const errors: string[] = [];
+    const counts: Record<string, unknown> = {};
+    let deferred: string | null = null;
 
-    for (const f of await stageAFeeds({ db, config, contentDir: p.content })) {
-      console.log(`${f.error ? "❌" : "📡"} feed ${f.source}: ${f.status}${f.error ? ` (${f.error})` : ""}`);
-      for (const t of f.added) console.log(`     + ${t}`);
+    // Stage A: light, always runs.
+    if (stage !== "b") {
+      const r = await stageAEmail({ mail, db, config, contentDir: p.content, dryRun });
+      if (!r.outcomes.length) console.log("No new email.");
+      printOutcomes(r.outcomes, dryRun);
+      const c = r.counts;
+      console.log(`${dryRun ? "\nDry run (nothing moved or saved): " : ""}${c.included} included, ${c.skipped} left in Inbox, ${c.hidden} hidden, ${c.newSources} new sources, ${c.errors} errors.`);
+      if (dryRun) return;
+      Object.assign(counts, c);
+      errors.push(...r.outcomes.filter((o) => o.error).map((o) => `${o.subject}: ${o.error}`));
+
+      for (const f of await stageAFeeds({ db, config, contentDir: p.content })) {
+        console.log(`${f.error ? "❌" : "📡"} feed ${f.source}: ${f.status}${f.error ? ` (${f.error})` : ""}`);
+        for (const t of f.added) console.log(`     + ${t}`);
+        if (f.error) errors.push(`feed ${f.source}: ${f.error}`);
+      }
     }
 
-    const pub = await publish({ db, appFolder: services(config).appFolder, config, contentDir: p.content });
-    console.log(`Published ${pub.items} items to OneDrive (${pub.uploadedItems} new articles, ${pub.uploadedImages} images).`);
-    for (const e of pub.errors) console.log(`  ❌ ${e}`);
+    // Publish now, so new items appear ("summary pending") without waiting for the AI.
+    const pubA = await publish({ db, appFolder, config, contentDir: p.content, status: { lastStage: "a", deferred: null, errors } });
+    console.log(`Published ${pubA.items} items (${pubA.uploadedItems} new articles, ${pubA.uploadedImages} images${pubA.pruned ? `, ${pubA.pruned} expired removed` : ""}).`);
+    errors.push(...pubA.errors);
 
-    const errors = [...r.outcomes.filter((o) => o.error).map((o) => o.error), ...pub.errors];
-    db.prepare("INSERT INTO runs (started_at, finished_at, stage, counts_json, errors_json) VALUES (?, ?, 'a', ?, ?)").run(
-      started, new Date().toISOString(), JSON.stringify({ ...c, published: pub.items }), JSON.stringify(errors),
+    // Stage B: AI, only when you're away (or --force).
+    if (stage !== "a") {
+      const llm = new OllamaProvider({ baseUrl: config.ai.baseUrl, model: config.ai.model, numCtx: config.ai.numCtx, temperature: config.ai.temperature });
+      const b = await stageB({ db, config, llm, mail, contentDir: p.content, sampleActivity, force: opts.force, limit: opts.limit, log: (l) => console.log(`🧠 ${l}`) });
+      deferred = b.deferred;
+      for (const o of b.outcomes) console.log(`   ${o.error ? "❌" : "✅"} ${o.result} (${Math.round(o.seconds)} s)${o.error ? `: ${o.error.split("\n")[0]}` : ""}`);
+      if (b.deferred) console.log(`⏸  AI work is waiting: ${b.deferred}. ${b.pendingLeft} item(s) pending.`);
+      else console.log(`Gemma read ${b.outcomes.length} item(s); ${b.pendingLeft} still pending.${b.unloaded ? " Model unloaded." : ""}`);
+      counts.ai = b.outcomes.length;
+      errors.push(...b.outcomes.filter((o) => o.error).map((o) => `${o.title}: ${o.error}`));
+
+      if (b.outcomes.length) {
+        const pubB = await publish({ db, appFolder, config, contentDir: p.content, status: { lastStage: "b", deferred, errors } });
+        console.log(`Republished ${pubB.items} items, ranked.`);
+        errors.push(...pubB.errors);
+      }
+    }
+
+    db.prepare("INSERT INTO runs (started_at, finished_at, stage, counts_json, deferred_reason, errors_json, model) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+      started, new Date().toISOString(), stage ?? "ab", JSON.stringify(counts), deferred, JSON.stringify(errors), config.ai.model,
     );
     if (errors.length) process.exitCode = 1;
+  });
+}
+
+/** Have Gemma read current items again (after a prompt, profile or model change). */
+async function resummarize(all: boolean) {
+  await withConfigAndDb(async (_config, db) => {
+    const where = all ? "ai_status IN ('done', 'failed')" : "ai_status = 'failed' OR (ai_status = 'done' AND is_article = 0)";
+    // Rules are re-checked too, so clear hides that came from an Instruction rule (Check-rule hides stay).
+    const r = db
+      .prepare(
+        `UPDATE items SET ai_status = 'pending', ai_attempts = 0,
+           hidden_by = CASE WHEN hidden_by IN (SELECT id FROM rules WHERE kind = 'instruction') THEN NULL ELSE hidden_by END
+         WHERE ${where}`,
+      )
+      .run();
+    console.log(`${r.changes} item(s) queued for Gemma to read again. They're read on the next run while you're away.`);
   });
 }
 
@@ -282,7 +330,10 @@ try {
       await folders(has("create"));
       break;
     case "run":
-      await run(flag("stage"), has("dry-run"));
+      await run({ stage: flag("stage"), dryRun: has("dry-run"), force: has("force"), limit: flag("limit") ? Number(flag("limit")) : undefined });
+      break;
+    case "resummarize":
+      await resummarize(has("all"));
       break;
     case "feed-check":
       await feedCheck(args[0]);
@@ -301,10 +352,15 @@ try {
   login --import-spike      reuse the Phase 0 sign-in instead
   logout                    remove the saved sign-in
   folders [--create]        check (or create/rename) the Outlook section folders
-  run --stage a [--dry-run] file new newsletters and save them for summarizing
-                            (--dry-run shows what would happen, changes nothing);
-                            also polls feeds and publishes the edition to OneDrive
+  run                       stage A, publish, then stage B if you're away (what launchd runs)
+  run --stage a [--dry-run] file new newsletters, poll feeds, publish
+                            (--dry-run shows what would happen, changes nothing)
+  run --stage b [--force] [--limit N]
+                            Gemma summarizes and files pending items; only while you're
+                            away unless --force
   feed-check <url>          find a site's feed and preview it, without following it
+  resummarize [--all]       have Gemma read again the items it dropped or failed on
+                            (--all: every current item, e.g. after changing your profile)
   doctor                    check everything the agent needs
   paths                     show where the agent keeps its files`);
       if (cmd) process.exitCode = 1;

@@ -116,4 +116,8 @@ export const migrations: string[] = [
   ALTER TABLE items ADD COLUMN feed_guid TEXT;                             -- feed entry id (feed items)
   CREATE INDEX items_url ON items(url);
   `,
+
+  /* 3: remember each item's cached images, so unused ones can be deleted from OneDrive (M5) */ `
+  ALTER TABLE items ADD COLUMN images_json TEXT;
+  `,
 ];

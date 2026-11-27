@@ -27,6 +27,17 @@ export class AppFolder {
     return this.put(path, JSON.stringify(value), "application/json");
   }
 
+  /** Names of the files in a folder of the App Folder ([] if the folder doesn't exist). */
+  async list(folder: string): Promise<string[]> {
+    try {
+      const items = await this.graph.all<{ name: string }>(`/me/drive/special/approot:/${enc(folder)}:/children?$select=name&$top=500`);
+      return items.map((i) => i.name);
+    } catch (e) {
+      if ((e as { status?: number }).status === 404) return [];
+      throw e;
+    }
+  }
+
   /** Delete a file in the App Folder (it goes to the OneDrive recycle bin). Missing files are fine. */
   async delete(path: string): Promise<void> {
     try {

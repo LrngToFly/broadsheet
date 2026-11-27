@@ -39,15 +39,19 @@ public typealias Row = [String: Value]
 public final class Database {
     private var handle: OpaquePointer?
 
-    /// Opens read-only. Safe while the agent is writing: the database is in WAL mode.
+    /// Opens for reading only. The database is in WAL mode, and a strictly read-only connection can't create the
+    /// WAL's helper files (-wal, -shm), which don't exist between the agent's runs, so every query failed with
+    /// "unable to open database file". So it opens normally, never creating the database, and `query_only`
+    /// makes SQLite refuse any write. Safe while the agent is writing.
     public init(path: String) throws {
         guard FileManager.default.fileExists(atPath: path) else { throw DatabaseError.open("\(path) doesn't exist") }
-        if sqlite3_open_v2(path, &handle, SQLITE_OPEN_READONLY, nil) != SQLITE_OK {
+        if sqlite3_open_v2(path, &handle, SQLITE_OPEN_READWRITE, nil) != SQLITE_OK {
             let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
             sqlite3_close(handle)
             throw DatabaseError.open(message)
         }
         sqlite3_busy_timeout(handle, 2000)
+        sqlite3_exec(handle, "PRAGMA query_only = ON", nil, nil, nil)
     }
 
     deinit { sqlite3_close(handle) }

@@ -257,3 +257,25 @@ import Testing
         #expect(AgentState(s) == .problem("The database is damaged, so the agent has stopped. To fix it, in Terminal: broadsheet restore 2026-11-27"))
     }
 }
+
+@Suite struct DatabaseTests {
+    /// The agent's database is in WAL mode, and between its runs the -wal/-shm files don't exist. Admin must still read it.
+    @Test func readsAWALDatabaseWithNoJournalFilesAndCannotWrite() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.appending(path: "w.db").path
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        p.arguments = [path, "PRAGMA journal_mode = WAL; CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (42);"]
+        try p.run()
+        p.waitUntilExit()
+        // As between the agent's runs: the database closed cleanly, and its -wal and -shm files are gone.
+        try? FileManager.default.removeItem(atPath: path + "-wal")
+        try? FileManager.default.removeItem(atPath: path + "-shm")
+
+        let db = try Database(path: path)
+        #expect(try db.scalar("SELECT x FROM t").int == 42)
+        #expect(throws: DatabaseError.self) { try db.query("INSERT INTO t VALUES (1)") }
+        #expect(throws: DatabaseError.self) { try Database(path: dir.appending(path: "missing.db").path) }
+    }
+}

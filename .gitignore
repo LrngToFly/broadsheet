@@ -16,3 +16,7 @@ local/
 
 # Spike output (may contain newsletter content)
 spikes/**/out/
+
+# Swift build output (Admin app)
+apps/admin/.build/
+apps/admin/.swiftpm/

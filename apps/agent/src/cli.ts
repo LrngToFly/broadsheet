@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The Broadsheet agent command line (PLAN.md §8.3). More commands arrive with each Phase 1 milestone.
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -24,6 +24,7 @@ import { learn } from "./pipeline/affinity.ts";
 import { currentProfile, profileNotDue, rebuildProfile } from "./ai/profile.ts";
 import { applyReaderActions } from "./pipeline/reader-actions.ts";
 import { setFormat } from "./pipeline/split.ts";
+import { parsePause, pausedUntil, setPause } from "./pause.ts";
 import { looksLikeRoundup } from "./content/split.ts";
 import { clearEval, loadSet, reportHtml, runModel, saveSet, savedRun, fingerprint, type EvalRun } from "./ai/eval.ts";
 import { execFile } from "node:child_process";
@@ -33,6 +34,8 @@ import { acquireLock, keepAwakeWhileRunning, LOG_FILE, rotateLogs } from "./hous
 import * as launchd from "./launchd.ts";
 
 const p = paths();
+/** Which item Gemma is on, while it works; Admin's menu bar reads it. */
+const PROGRESS = join(p.home, "progress.json");
 const here = dirname(fileURLToPath(import.meta.url));
 const EXAMPLE = join(here, "..", "config.example.json");
 const SPIKE_CACHE = join(homedir(), "Library", "Application Support", "Broadsheet-spike", "msal-cache.json");
@@ -254,8 +257,18 @@ async function run(opts: { stage?: string; dryRun: boolean; force: boolean; limi
     await rotateLogs(p.logs);
     if (!dryRun) keepAwakeWhileRunning();
     console.log(`=== ${new Date().toISOString()} run${stage ? ` --stage ${stage}` : ""}${dryRun ? " --dry-run" : ""}${opts.force ? " --force" : ""}`);
+    if (!opts.force) {
+      const db = openDb(p.db);
+      const until = pausedUntil(db);
+      db.close();
+      if (until) {
+        console.log(`Paused until ${until.toLocaleString()}; nothing to do. (broadsheet pause off resumes.)`);
+        return;
+      }
+    }
     await runLocked(opts);
   } finally {
+    await rm(PROGRESS, { force: true });
     await release();
   }
 }
@@ -303,7 +316,11 @@ async function runLocked(opts: { stage?: string; dryRun: boolean; force: boolean
     // Stage B: AI, only when you're away (or --force).
     if (stage !== "a") {
       const llm = new OllamaProvider({ baseUrl: config.ai.baseUrl, model: config.ai.model, numCtx: config.ai.numCtx, temperature: config.ai.temperature });
-      const b = await stageB({ db, config, llm, mail, contentDir: p.content, sampleActivity, force: opts.force, limit: opts.limit, log: (l) => console.log(`🧠 ${l}`) });
+      const b = await stageB({
+        db, config, llm, mail, contentDir: p.content, sampleActivity, force: opts.force, limit: opts.limit, log: (l) => console.log(`🧠 ${l}`),
+        onProgress: (n, total, title) => void writeFile(PROGRESS, JSON.stringify({ n, total, title, at: new Date().toISOString() })).catch(() => {}),
+      });
+      await rm(PROGRESS, { force: true });
       deferred = b.deferred;
       for (const o of b.outcomes) console.log(`   ${o.error ? "❌" : "✅"} ${o.result} (${Math.round(o.seconds)} s)${o.error ? `: ${o.error.split("\n")[0]}` : ""}`);
       if (b.deferred) console.log(`⏸  AI work is waiting: ${b.deferred}. ${b.pendingLeft} item(s) pending.`);
@@ -353,6 +370,8 @@ async function scheduleStatus() {
   const s = await launchd.status();
   console.log(s.loaded ? `Scheduled: every ${launchd.INTERVAL_SECONDS / 60} min${s.running ? " (running right now)" : ""}; last exit code ${s.lastExit ?? "n/a"}` : s.installed ? "Installed but not loaded. Run: broadsheet install" : "Not scheduled. Run: broadsheet install");
   await withConfigAndDb(async (_config, db) => {
+    const until = pausedUntil(db);
+    if (until) console.log(`Paused until ${until.toLocaleString()} (broadsheet pause off resumes).`);
     const runs = db.prepare("SELECT started_at, stage, counts_json, deferred_reason, errors_json FROM runs ORDER BY id DESC LIMIT 5").all() as any[];
     for (const r of runs) {
       const errors = JSON.parse(r.errors_json).length;
@@ -476,6 +495,19 @@ async function format(sourceId: string | undefined, value: string | undefined) {
   });
 }
 
+/** Pause scheduled runs (Admin's menu bar does the same). */
+async function pause(arg: string | undefined) {
+  if (!arg) throw new Error("Usage: broadsheet pause 30m|1h|tomorrow|off");
+  const db = openDb(p.db);
+  try {
+    const until = parsePause(arg);
+    setPause(db, until);
+    console.log(until ? `Paused until ${until.toLocaleString()}. Scheduled runs do nothing until then; broadsheet pause off resumes.` : "Resumed: the next scheduled run works as usual.");
+  } finally {
+    db.close();
+  }
+}
+
 /** Compare models on saved newsletters (P6). */
 async function evalCmd(sub: string | undefined, o: { count?: number; model?: string; against?: string; limit?: number; rerun: boolean; open: boolean }) {
   await withConfigAndDb(async (config, db) => {
@@ -591,6 +623,9 @@ try {
     case "format":
       await format(args[0], args[1]);
       break;
+    case "pause":
+      await pause(args[0]);
+      break;
     case "eval":
       await evalCmd(args[0]?.startsWith("--") ? undefined : args[0], {
         count: flag("count") ? Number(flag("count")) : undefined,
@@ -646,6 +681,7 @@ try {
   eval clear                delete the test set, runs and pages
   profile [--rebuild]       what your ratings taught it, and the reader profile Gemma uses
                             (--rebuild: have Gemma rewrite the profile now)
+  pause 30m|1h|tomorrow|off pause scheduled runs (tomorrow = until 6 a.m.); run --force still runs
   install                   run the agent every 15 minutes in the background (launchd)
   uninstall                 stop running it in the background
   status                    is it scheduled, and what did the last runs do

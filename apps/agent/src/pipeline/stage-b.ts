@@ -33,6 +33,8 @@ export async function stageB(opts: {
   force?: boolean;
   limit?: number;
   log?: (line: string) => void;
+  /** Which item Gemma is on (for Admin's "Working (3 of 12)"). */
+  onProgress?: (n: number, total: number, title: string) => void;
 }): Promise<StageBResult> {
   const { db, config, llm, mail } = opts;
   const log = opts.log ?? (() => {});
@@ -128,6 +130,7 @@ export async function stageB(opts: {
       }
 
       log(`Gemma is reading: ${it.title}`);
+      opts.onProgress?.(n + 1, items.length, it.title);
       const piece = it.parent_id ? { kind: it.kind as "brief" | "article", newsletter: it.newsletter_title ?? it.source_name } : null;
       const r = await enrich(llm, { title: it.title, source: it.source_name, author: it.author, text, fixedSection: fixed, piece }, {
         sections, instructionRules, sourceId: it.source_id, readerProfile, numCtx: config.ai.numCtx,

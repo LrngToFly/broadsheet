@@ -496,6 +496,7 @@ Ratings are written as one small file per event, so two devices rating at the sa
 | `broadsheet follow <url>` | Find a site's feed and follow it (the same as Admin's Follow by URL). |
 | `broadsheet rules test <rule>` | Show which recent emails a rule would match. |
 | `broadsheet eval` | Side-by-side comparison of AI models on saved newsletters. |
+| `broadsheet pause 1h\|tomorrow\|off` | Pause scheduled runs (Admin's menu bar does the same). |
 
 Logs are written as structured JSON to `~/Library/Logs/Broadsheet/`.
 
@@ -592,7 +593,7 @@ The full step-by-step guide, `docs/DEPLOY.md`, ships with the code.
 2. Run `broadsheet login` and sign in with the **newsletter account**, then `broadsheet doctor` (which confirms OneDrive, mail folders, Ollama and the Gemma model).
 3. Edit the starter config (sections and approved sources), or approve sources later in Admin. Then run `broadsheet backfill --days 3`.
 
-**D. Install Admin:** build it in Xcode, or use the release `.app`. Unsigned builds need a right-click → Open the first time.
+**D. Install Admin:** run `apps/admin/build.sh`, which builds it with Xcode's tools and installs `~/Applications/Broadsheet Admin.app` ([docs/phase-3.md](docs/phase-3.md)). Add it to Login Items to start it with the Mac.
 
 **E. On each device:** open the Pages URL in Safari and sign in with the **newsletter account**. If Microsoft offers your personal account, choose *Use another account*. Then choose Share → *Add to Home Screen*.
 

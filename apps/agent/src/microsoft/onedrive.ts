@@ -27,6 +27,15 @@ export class AppFolder {
     return this.put(path, JSON.stringify(value), "application/json");
   }
 
+  /** Delete a file in the App Folder (it goes to the OneDrive recycle bin). Missing files are fine. */
+  async delete(path: string): Promise<void> {
+    try {
+      await this.graph.call(`/me/drive/special/approot:/${enc(path)}`, { method: "DELETE" });
+    } catch (e) {
+      if ((e as { status?: number }).status !== 404) throw e;
+    }
+  }
+
   async getJson<T = unknown>(path: string): Promise<T> {
     const res = await this.graph.call<Response>(`/me/drive/special/approot:/${enc(path)}:/content`, { raw: true });
     return JSON.parse(await res.text()) as T;

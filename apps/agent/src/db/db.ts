@@ -74,7 +74,9 @@ export function syncConfig(db: Db, config: Config, now = new Date().toISOString(
       `INSERT INTO sources (id, channel, display_name, match_json, site_url, status, fixed_section_id, origin, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'config', ?)
        ON CONFLICT(id) DO UPDATE SET channel = excluded.channel, display_name = excluded.display_name,
-         match_json = excluded.match_json, site_url = excluded.site_url, status = excluded.status,
+         match_json = excluded.match_json, status = excluded.status,
+         feed_url = CASE WHEN sources.site_url IS excluded.site_url THEN sources.feed_url ELSE NULL END, -- address changed: find the feed again
+         site_url = excluded.site_url,
          fixed_section_id = excluded.fixed_section_id, origin = 'config'`,
     );
     for (const s of config.sources) {

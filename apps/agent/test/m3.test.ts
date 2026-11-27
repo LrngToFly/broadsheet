@@ -90,6 +90,8 @@ describe("deciding what to do with an email", () => {
     expect(accountMailReason(facts({ subject: "Your login link for Substack", wordCount: 40 }))).not.toBeNull();
     expect(accountMailReason(facts({ subject: "Welcome to Status. There's more to explore", wordCount: 290 }))).not.toBeNull();
     expect(accountMailReason(facts({ sender: "account-security-noreply@accountprotection.microsoft.com" }))).not.toBeNull();
+    expect(accountMailReason(facts({ subject: "ACTION REQUIRED - Confirm your referral to Tech Digest!", wordCount: 66 }))).not.toBeNull();
+    expect(accountMailReason(facts({ subject: "Please confirm your subscription", wordCount: 80 }))).not.toBeNull();
     expect(accountMailReason(facts({ subject: "Receipt for your payment", wordCount: 2000 }))).toBeNull(); // long: probably an article
     expect(accountMailReason(facts())).toBeNull();
   });

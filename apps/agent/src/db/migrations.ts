@@ -109,4 +109,11 @@ export const migrations: string[] = [
     value           TEXT NOT NULL
   ) STRICT;
   `,
+
+  /* 2: publishing to OneDrive (M4) */ `
+  ALTER TABLE items ADD COLUMN image TEXT;                                 -- hero image path in the App Folder
+  ALTER TABLE items ADD COLUMN content_published INTEGER NOT NULL DEFAULT 0; -- items/<id>.html and its images are uploaded
+  ALTER TABLE items ADD COLUMN feed_guid TEXT;                             -- feed entry id (feed items)
+  CREATE INDEX items_url ON items(url);
+  `,
 ];

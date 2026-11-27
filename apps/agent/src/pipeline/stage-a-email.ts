@@ -126,7 +126,11 @@ export async function stageAEmail(opts: {
       // Record first, then move. If the move fails, undo the record so the next run tries again.
       const nowIso = now.toISOString();
       const itemId = itemIdFor(email.messageId);
-      const keep = decision.action !== "skip";
+      // The same post may already be here from a feed you follow (PLAN.md §3.4): keep the fuller version.
+      const dupe = article.canonicalUrl
+        ? (db.prepare("SELECT id, word_count FROM items WHERE url = ? AND channel = 'feed'").get(article.canonicalUrl) as { id: string; word_count: number } | undefined)
+        : undefined;
+      const keep = decision.action !== "skip" && !(dupe && dupe.word_count > article.wordCount);
       const targetFolder =
         decision.action === "include" ? (decision.sectionId ? folders.sections.get(decision.sectionId)?.mail_folder_id : folders.sorting)
         : decision.action === "hide" && decision.mail === "deleted-items" ? "deleteditems"
@@ -141,6 +145,7 @@ export async function stageAEmail(opts: {
         } else if (keep) {
           db.prepare("UPDATE sources SET last_post_at = max(coalesce(last_post_at, ''), ?) WHERE id = ?").run(m.receivedDateTime, source.id);
         }
+        if (keep && dupe) db.prepare("DELETE FROM items WHERE id = ?").run(dupe.id);
         if (keep) {
           const { author } = splitSenderName(email.from.name);
           db.prepare(

@@ -17,6 +17,9 @@ import { ollamaStatus } from "./ai/ollama.ts";
 import { aiMayRun, sampleActivity } from "./activity.ts";
 import { Mail } from "./microsoft/mail.ts";
 import { stageAEmail, type EmailOutcome } from "./pipeline/stage-a-email.ts";
+import { publish } from "./pipeline/publish.ts";
+import { stageAFeeds } from "./pipeline/stage-a-feeds.ts";
+import { discoverFeed } from "./feeds/feed.ts";
 
 const p = paths();
 const here = dirname(fileURLToPath(import.meta.url));
@@ -227,13 +230,32 @@ async function run(stage: string | undefined, dryRun: boolean) {
     printOutcomes(r.outcomes, dryRun);
     const c = r.counts;
     console.log(`\n${dryRun ? "Dry run (nothing moved or saved): " : ""}${c.included} included, ${c.skipped} left in Inbox, ${c.hidden} hidden, ${c.newSources} new sources, ${c.errors} errors.`);
-    if (!dryRun) {
-      db.prepare("INSERT INTO runs (started_at, finished_at, stage, counts_json, errors_json) VALUES (?, ?, 'a', ?, ?)").run(
-        started, new Date().toISOString(), JSON.stringify(c), JSON.stringify(r.outcomes.filter((o) => o.error).map((o) => o.error)),
-      );
+    if (dryRun) return;
+
+    for (const f of await stageAFeeds({ db, config, contentDir: p.content })) {
+      console.log(`${f.error ? "❌" : "📡"} feed ${f.source}: ${f.status}${f.error ? ` (${f.error})` : ""}`);
+      for (const t of f.added) console.log(`     + ${t}`);
     }
-    if (c.errors) process.exitCode = 1;
+
+    const pub = await publish({ db, appFolder: services(config).appFolder, config, contentDir: p.content });
+    console.log(`Published ${pub.items} items to OneDrive (${pub.uploadedItems} new articles, ${pub.uploadedImages} images).`);
+    for (const e of pub.errors) console.log(`  ❌ ${e}`);
+
+    const errors = [...r.outcomes.filter((o) => o.error).map((o) => o.error), ...pub.errors];
+    db.prepare("INSERT INTO runs (started_at, finished_at, stage, counts_json, errors_json) VALUES (?, ?, 'a', ?, ?)").run(
+      started, new Date().toISOString(), JSON.stringify({ ...c, published: pub.items }), JSON.stringify(errors),
+    );
+    if (errors.length) process.exitCode = 1;
   });
+}
+
+/** Find a site's feed and show its latest posts, without following it (a preview, like Admin's Follow by URL). */
+async function feedCheck(url: string | undefined) {
+  if (!url) throw new Error("Usage: broadsheet feed-check <site or feed address>");
+  const { feedUrl, feed } = await discoverFeed(url);
+  console.log(`Feed: ${feedUrl}\nTitle: ${feed.title}\n`);
+  for (const e of feed.entries.slice(0, 8)) console.log(`  ${e.publishedAt.slice(0, 10)}  ${e.title}`);
+  console.log(`\nTo follow it, add to "sources" in your config file:\n  { "id": "…", "channel": "feed", "url": "${url}" }`);
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -262,6 +284,9 @@ try {
     case "run":
       await run(flag("stage"), has("dry-run"));
       break;
+    case "feed-check":
+      await feedCheck(args[0]);
+      break;
     case "doctor":
       process.exitCode = (await doctor()) ? 0 : 1;
       break;
@@ -277,7 +302,9 @@ try {
   logout                    remove the saved sign-in
   folders [--create]        check (or create/rename) the Outlook section folders
   run --stage a [--dry-run] file new newsletters and save them for summarizing
-                            (--dry-run shows what would happen, changes nothing)
+                            (--dry-run shows what would happen, changes nothing);
+                            also polls feeds and publishes the edition to OneDrive
+  feed-check <url>          find a site's feed and preview it, without following it
   doctor                    check everything the agent needs
   paths                     show where the agent keeps its files`);
       if (cmd) process.exitCode = 1;

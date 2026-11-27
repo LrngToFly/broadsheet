@@ -50,37 +50,50 @@ export async function publish(opts: {
 
   const rows = db
     .prepare(
-      `SELECT i.*, coalesce(s.display_name, s.id) AS source_name FROM items i JOIN sources s ON s.id = i.source_id
-       WHERE i.hidden_by IS NULL AND (i.is_article IS NULL OR i.is_article = 1) AND (i.published_at >= ? OR i.saved = 1)`,
+      `SELECT i.*, coalesce(s.display_name, s.id) AS source_name, parent.title AS newsletter_title FROM items i JOIN sources s ON s.id = i.source_id
+         LEFT JOIN items parent ON parent.id = i.parent_id
+       WHERE i.kind != 'newsletter' AND i.hidden_by IS NULL AND (i.is_article IS NULL OR i.is_article = 1) AND (i.published_at >= ? OR i.saved = 1)`,
     )
     .all(cutoff) as any[];
+  // A split newsletter isn't shown itself, but its pieces link to it ("Read the whole newsletter").
+  const parentIds = [...new Set(rows.map((r) => r.parent_id).filter(Boolean))] as string[];
+  const newsletters = parentIds.length
+    ? (db.prepare(`SELECT * FROM items WHERE id IN (${parentIds.map(() => "?").join(",")})`).all(...parentIds) as any[])
+    : [];
+  const newsletterReady = new Set<string>();
 
   const learned = learn(db, now); // what your ratings say, for the ranking
   const uploaded = new Set<string>(); // images uploaded during this run
   const cards: ItemCard[] = [];
 
-  for (const r of rows) {
-    // Upload the article and its images once; after that only the card changes.
-    if (!r.content_published) {
-      try {
-        const dir = join(contentDir, r.id);
-        const article = await readFile(join(dir, "article.html"), "utf8");
-        const cached = await cacheImages(article, dir, opts.fetchImage);
-        for (const img of cached.images) {
-          if (uploaded.has(img.path)) continue;
-          await appFolder.put(img.path, await readFile(img.file), contentTypeOf(img.path));
-          uploaded.add(img.path);
-          result.uploadedImages++;
-        }
-        await appFolder.put(`items/${r.id}.html`, cached.html, "text/html; charset=utf-8");
-        db.prepare("UPDATE items SET content_published = 1, image = ?, images_json = ? WHERE id = ?").run(cached.hero, JSON.stringify(cached.images.map((i) => i.path)), r.id);
-        r.image = cached.hero;
-      } catch (e) {
-        result.errors.push(`${r.title}: ${(e as Error).message}`);
-        continue; // leave it out of this edition; the next run tries again
+  /** Upload an item's article and its images once; after that only the card changes. False if it failed. */
+  const uploadContent = async (r: any): Promise<boolean> => {
+    if (r.content_published) return true;
+    try {
+      const dir = join(contentDir, r.id);
+      const article = await readFile(join(dir, "article.html"), "utf8");
+      const cached = await cacheImages(article, dir, opts.fetchImage);
+      for (const img of cached.images) {
+        if (uploaded.has(img.path)) continue;
+        await appFolder.put(img.path, await readFile(img.file), contentTypeOf(img.path));
+        uploaded.add(img.path);
+        result.uploadedImages++;
       }
-      result.uploadedItems++;
+      await appFolder.put(`items/${r.id}.html`, cached.html, "text/html; charset=utf-8");
+      db.prepare("UPDATE items SET content_published = 1, image = ?, images_json = ? WHERE id = ?").run(cached.hero, JSON.stringify(cached.images.map((i) => i.path)), r.id);
+      r.image = cached.hero;
+    } catch (e) {
+      result.errors.push(`${r.title}: ${(e as Error).message}`);
+      return false; // leave it out of this edition; the next run tries again
     }
+    result.uploadedItems++;
+    return true;
+  };
+
+  for (const n of newsletters) if (await uploadContent(n)) newsletterReady.add(n.id);
+
+  for (const r of rows) {
+    if (!(await uploadContent(r))) continue;
 
     const summarized = r.ai_status === "done";
     cards.push({
@@ -108,10 +121,15 @@ export async function publish(opts: {
       rating: r.rating ?? null,
       saved: Boolean(r.saved),
       sectionByYou: r.section_source === "user",
+      kind: r.kind === "brief" ? "brief" : "article",
+      newsletter: r.parent_id && newsletterReady.has(r.parent_id) ? { title: r.newsletter_title, content: `items/${r.parent_id}.html` } : null,
+      alsoIn: [],
     });
   }
 
   cards.sort((a, b) => b.score - a.score || b.publishedAt.localeCompare(a.publishedAt));
+  const shown = sameStoryOnce(cards, new Map(rows.map((r) => [r.id, { links: JSON.parse(r.links_json ?? "[]"), sender: r.sender, piece: Boolean(r.parent_id) }])));
+  cards.splice(0, cards.length, ...shown);
   const hidden = hiddenCards(db, cutoff);
   const sections = (db.prepare("SELECT id, name FROM sections ORDER BY sort_order").all() as { id: string; name: string }[]).map((s) => ({ ...s }));
   const edition = Edition.parse({ schemaVersion: EDITION_SCHEMA_VERSION, generatedAt: now.toISOString(), sections, items: cards, hidden });
@@ -130,13 +148,69 @@ export async function publish(opts: {
   return result;
 }
 
+// ---- The same story in several roundups (PLAN.md §4.4) ---------------------------------------------
+
+const STOP = new Set("the a an and or of to in on for with at by from as is are was were be its it this that new over after into says say amid than more most".split(" "));
+const titleWords = (t: string) => new Set(t.toLowerCase().replace(/[’']s\b/g, "").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3 && !STOP.has(w)));
+const hostOf = (u: string) => {
+  try {
+    return new URL(u).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+};
+/** A link with its query and fragment dropped, so two newsletters' links to one story compare equal. */
+const bare = (u: string) => {
+  try {
+    const x = new URL(u);
+    return `${x.hostname.replace(/^www\./, "")}${x.pathname.replace(/\/$/, "")}`;
+  } catch {
+    return u;
+  }
+};
+/** Links that say nothing about which story it is. */
+const GENERIC_HOSTS = /(^|\.)(twitter\.com|x\.com|facebook\.com|instagram\.com|linkedin\.com|youtube\.com|bsky\.app|threads\.net|apple\.com|spotify\.com)$/;
+
+/**
+ * Pieces from different newsletters about one story: the same headline (most of its words), or a link to the same
+ * page (not the newsletter's own site). Cards are best first, so the one kept is the best-scored; the others are
+ * dropped and named in its "also in".
+ */
+export function sameStoryOnce(cards: ItemCard[], extra: Map<string, { links: string[]; sender: string | null; piece: boolean }>): ItemCard[] {
+  const kept: { card: ItemCard; words: Set<string>; links: Set<string> }[] = [];
+  const out: ItemCard[] = [];
+  for (const card of cards) {
+    const x = extra.get(card.id);
+    if (!x?.piece) {
+      out.push(card);
+      continue;
+    }
+    const own = x.sender?.split("@")[1]?.split(".").slice(-2).join(".") ?? "";
+    const links = new Set(x.links.filter((l) => { const h = hostOf(l); return h && !GENERIC_HOSTS.test(h) && !(own && (h === own || h.endsWith(`.${own}`))); }).map(bare));
+    const words = titleWords(card.title);
+    const same = kept.find((k) => {
+      if (k.card.source === card.source) return false;
+      const shared = [...words].filter((w) => k.words.has(w)).length;
+      const jaccard = shared / (words.size + k.words.size - shared || 1);
+      return (shared >= 2 && jaccard >= 0.5) || [...links].some((l) => k.links.has(l));
+    });
+    if (same) {
+      if (!same.card.alsoIn.includes(card.source)) same.card.alsoIn.push(card.source);
+      continue;
+    }
+    kept.push({ card, words, links });
+    out.push(card);
+  }
+  return out;
+}
+
 /** What was left out of the paper in the same window, and why, for the reader's Hidden list. */
 function hiddenCards(db: Db, cutoff: string): HiddenCard[] {
   const rows = db
     .prepare(
       `SELECT i.id, i.title, i.author, i.published_at, i.url, i.hidden_by, i.hidden_reason, i.hidden_note, coalesce(s.display_name, s.id) AS source_name, r.wording
        FROM items i JOIN sources s ON s.id = i.source_id LEFT JOIN rules r ON r.id = i.hidden_by
-       WHERE (i.hidden_by IS NOT NULL OR i.is_article = 0) AND i.published_at >= ?
+       WHERE (i.hidden_by IS NOT NULL OR i.is_article = 0) AND i.kind != 'newsletter' AND i.published_at >= ?
        ORDER BY coalesce(i.hidden_at, i.published_at) DESC, i.id`,
     )
     .all(cutoff) as any[];

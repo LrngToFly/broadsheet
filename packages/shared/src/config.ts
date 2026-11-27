@@ -6,6 +6,11 @@ import { Rule } from "./rules.ts";
 
 const Id = z.string().regex(/^[a-z0-9-]+$/, "use lower-case letters, digits and dashes");
 
+/** How a newsletter is laid out (PLAN.md §4.4): one article, a roundup of short stories (each becomes a brief),
+ *  or a few substantial pieces on different subjects (each becomes its own article). */
+export const SourceFormat = z.enum(["normal", "roundup", "multi-section"]);
+export type SourceFormat = z.infer<typeof SourceFormat>;
+
 export const EmailSource = z.object({
   id: Id,
   channel: z.literal("email"),
@@ -20,6 +25,8 @@ export const EmailSource = z.object({
     .refine((m) => m.sender || m.domain || m.listId, "give a sender, domain or listId"),
   /** Always file into this section, without asking the AI. */
   section: Id.optional(),
+  /** Split it into briefs or articles (PLAN.md §4.4). Left out: whatever was set with `broadsheet format`, or normal. */
+  format: SourceFormat.optional(),
   enabled: z.boolean().default(true),
 });
 
@@ -30,6 +37,7 @@ export const FeedSource = z.object({
   /** The site or feed address, e.g. https://example.substack.com */
   url: z.url({ protocol: /^https?$/ }),
   section: Id.optional(),
+  format: SourceFormat.optional(),
   enabled: z.boolean().default(true),
 });
 

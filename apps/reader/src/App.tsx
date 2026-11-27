@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DOMPurify from "dompurify";
 import type { AccountInfo } from "@azure/msal-browser";
-import type { Edition, HiddenCard, HideReason, ItemCard, RulesFile, Suggestion } from "@broadsheet/shared";
+import { NEWS_IN_BRIEF_SECTION_ID, type Edition, type HiddenCard, type HideReason, type ItemCard, type RulesFile, type Suggestion } from "@broadsheet/shared";
 import { NeedsSignIn, signIn, signOut, startAuth } from "./auth.ts";
 import { clearData, imageUrl, loadArticle, loadEdition, loadRules, loadStatus, localMode, prefetch, type Status } from "./data.ts";
 import { applyOverlay, useReaderActions, type NewAction, type Overlay, type SettingsOverlay } from "./actions.ts";
 
-// ---- Routing: #/ (Front Page), #/s/<section>, #/i/<item>, #/saved, #/hidden ---------------------------
+// ---- Routing: #/ (Front Page), #/s/<section>, #/i/<item>, #/n/<item>, #/saved, #/hidden, #/rules -------
 
-type Route = { page: "front" } | { page: "saved" } | { page: "hidden" } | { page: "rules" } | { page: "section"; id: string } | { page: "item"; id: string };
+type Route =
+  | { page: "front" } | { page: "saved" } | { page: "hidden" } | { page: "rules" } | { page: "section"; id: string } | { page: "item"; id: string }
+  | { page: "newsletter"; id: string }; // the whole newsletter a brief or piece came from, opened from that piece
 
 function parseRoute(hash: string): Route {
   const [, kind, id] = hash.replace(/^#/, "").split("/");
   if (kind === "s" && id) return { page: "section", id: decodeURIComponent(id) };
   if (kind === "i" && id) return { page: "item", id: decodeURIComponent(id) };
+  if (kind === "n" && id) return { page: "newsletter", id: decodeURIComponent(id) };
   if (kind === "saved") return { page: "saved" };
   if (kind === "hidden") return { page: "hidden" };
   if (kind === "rules") return { page: "rules" };
@@ -94,6 +97,71 @@ function ItemList({ items, read, empty = "Nothing here right now." }: { items: I
   );
 }
 
+const isBrief = (i: ItemCard) => i.kind === "brief";
+const alsoIn = (i: ItemCard) => (i.alsoIn.length ? `also in ${i.alsoIn.join(", ")}` : null);
+
+/** Short stories from roundup newsletters (PLAN.md §4.4): a headline and a sentence or two each. */
+function BriefList({ title, items, read, more }: { title: string; items: ItemCard[]; read: Set<string>; more?: { href: string; label: string } }) {
+  if (!items.length) return null;
+  return (
+    <section className="in-brief" aria-label={title}>
+      <h2 className="in-brief-title">{title}</h2>
+      <ul>
+        {items.map((i) => (
+          <li key={i.id} className={read.has(i.id) ? "read" : ""}>
+            <a href={`#/i/${encodeURIComponent(i.id)}`}>
+              <h3>{i.title}</h3>
+              <p className="summary">{i.status === "summarized" ? i.summary : i.opening}</p>
+              <p className="meta">
+                {[i.source, ago(i.publishedAt), alsoIn(i)].filter(Boolean).join(" · ")}
+                {i.rating !== null && <span className="mark"> · {RATING_ICON[String(i.rating)]}</span>}
+                {i.saved && <span className="mark"> · ★</span>}
+              </p>
+            </a>
+          </li>
+        ))}
+      </ul>
+      {more && <a className="in-brief-more" href={more.href}>{more.label}</a>}
+    </section>
+  );
+}
+
+const FRONT_PAGE_BRIEFS = 8;
+
+/** The lead story, then News in Brief (Current Events briefs), then the rest of the top stories. */
+function FrontPage({ items, read }: { items: ItemCard[]; read: Set<string> }) {
+  const articles = items.filter((i) => !isBrief(i)).slice(0, 20);
+  const briefs = items.filter((i) => isBrief(i) && i.section === NEWS_IN_BRIEF_SECTION_ID);
+  const news = (
+    <BriefList
+      title="News in Brief"
+      items={briefs.slice(0, FRONT_PAGE_BRIEFS)}
+      read={read}
+      more={briefs.length > FRONT_PAGE_BRIEFS ? { href: `#/s/${NEWS_IN_BRIEF_SECTION_ID}`, label: `All ${briefs.length} briefs →` } : undefined}
+    />
+  );
+  if (!articles.length) return briefs.length ? news : <ItemList items={[]} read={read} />;
+  return (
+    <>
+      <ItemList items={articles.slice(0, 1)} read={read} />
+      {news}
+      {articles.length > 1 && <div className="list">{articles.slice(1).map((i) => <Card key={i.id} item={i} read={read.has(i.id)} />)}</div>}
+    </>
+  );
+}
+
+/** A section's page: its briefs first (In brief), then its articles. */
+function SectionPage({ items, read }: { items: ItemCard[]; read: Set<string> }) {
+  const briefs = items.filter(isBrief);
+  const articles = items.filter((i) => !isBrief(i));
+  return (
+    <>
+      <BriefList title="In brief" items={briefs} read={read} />
+      {(articles.length > 0 || briefs.length === 0) && <ItemList items={articles} read={read} />}
+    </>
+  );
+}
+
 // ---- Article -----------------------------------------------------------------------------------------
 
 type Act = (a: NewAction) => void;
@@ -147,17 +215,15 @@ function ActionBar({ item, sections, act, read, markRead, onHide }: ArticleProps
   );
 }
 
-function Article(props: ArticleProps) {
-  const { item, markRead } = props;
-  // Opening an article counts as reading it.
-  useEffect(() => markRead(item.id, true), [item.id, markRead]);
+/** An article's HTML from the App Folder, sanitized, with its images from the cache. */
+function ArticleBody({ content }: { content: string }) {
   const body = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
     setError(null);
-    loadArticle(item.content).then(
+    loadArticle(content).then(
       (html) => {
         if (!live || !body.current) return;
         // The agent already cleaned this; sanitize again here because it came from a newsletter.
@@ -175,7 +241,15 @@ function Article(props: ArticleProps) {
     return () => {
       live = false;
     };
-  }, [item.content]);
+  }, [content]);
+
+  return error ? <p className="error">Couldn't load this article ({error}). It may not be available offline yet.</p> : <div className="article-body" ref={body} />;
+}
+
+function Article(props: ArticleProps) {
+  const { item, markRead } = props;
+  // Opening an article counts as reading it.
+  useEffect(() => markRead(item.id, true), [item.id, markRead]);
 
   return (
     <article className="article">
@@ -185,6 +259,7 @@ function Article(props: ArticleProps) {
         {byline(item)} · {new Date(item.publishedAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · {item.readMinutes} min read
         {" · "}
         <a href={`#/s/${item.section}`}>{props.sections.find((s) => s.id === item.section)?.name ?? item.section}</a>
+        {alsoIn(item) && ` · ${alsoIn(item)}`}
       </p>
       <ActionBar {...props} />
       {item.status === "summarized" && (
@@ -200,8 +275,13 @@ function Article(props: ArticleProps) {
           {item.whyItsHere && <p className="why">{item.whyItsHere}</p>}
         </aside>
       )}
-      {error ? <p className="error">Couldn't load this article ({error}). It may not be available offline yet.</p> : <div className="article-body" ref={body} />}
+      <ArticleBody content={item.content} />
       <ActionBar {...props} />
+      {item.newsletter && (
+        <p className="original">
+          <a href={`#/n/${encodeURIComponent(item.id)}`}>Read the whole newsletter: {item.newsletter.title} →</a>
+        </p>
+      )}
       {item.url && (
         <p className="original">
           <a href={item.url} target="_blank" rel="noopener noreferrer">
@@ -209,6 +289,20 @@ function Article(props: ArticleProps) {
           </a>
         </p>
       )}
+      <BackLink end />
+    </article>
+  );
+}
+
+/** The whole newsletter a brief or piece came from. */
+function Newsletter({ item }: { item: ItemCard }) {
+  if (!item.newsletter) return <p className="empty">This article isn't part of a larger newsletter.</p>;
+  return (
+    <article className="article">
+      <BackLink />
+      <h1>{item.newsletter.title}</h1>
+      <p className="meta">{byline(item)} · {new Date(item.publishedAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · the whole newsletter</p>
+      <ArticleBody content={item.newsletter.content} />
       <BackLink end />
     </article>
   );
@@ -590,8 +684,8 @@ export function App() {
     );
   }
 
-  const item = route.page === "item" && edition ? edition.items.find((i) => i.id === route.id) : undefined;
-  const active = route.page === "section" ? route.id : route.page === "item" ? null : route.page;
+  const item = (route.page === "item" || route.page === "newsletter") && edition ? edition.items.find((i) => i.id === route.id) : undefined;
+  const active = route.page === "section" ? route.id : route.page === "item" || route.page === "newsletter" ? null : route.page;
   const saved = edition ? edition.items.filter((i) => i.saved) : [];
 
   return (
@@ -625,13 +719,15 @@ export function App() {
       <main>
         {state.kind === "loading" && <p className="empty">Fetching today's edition…</p>}
         {state.kind === "error" && <p className="error">Couldn't load the edition: {state.message}</p>}
-        {edition && route.page === "front" && <ItemList items={edition.items.slice(0, 20)} read={read} />}
-        {edition && route.page === "section" && <ItemList items={edition.items.filter((i) => i.section === route.id)} read={read} />}
+        {edition && route.page === "front" && <FrontPage items={edition.items} read={read} />}
+        {edition && route.page === "section" && <SectionPage items={edition.items.filter((i) => i.section === route.id)} read={read} />}
         {edition && route.page === "saved" && <ItemList items={saved} read={read} empty="Nothing saved. Saved articles are kept after the others expire." />}
         {edition && route.page === "hidden" && <HiddenList hidden={hiddenList} act={act} />}
         {edition && route.page === "rules" && <RulesPage rules={rules} settings={settings} act={act} hiddenCount={hiddenList.length} />}
         {edition && route.page === "item" &&
           (item ? <Article item={item} sections={edition.sections} act={act} read={read.has(item.id)} markRead={markRead} onHide={hide} /> : <p className="empty">That article has expired. <a href="#/">Back to the Front Page</a></p>)}
+        {edition && route.page === "newsletter" &&
+          (item ? <Newsletter item={item} /> : <p className="empty">That newsletter has expired. <a href="#/">Back to the Front Page</a></p>)}
       </main>
 
       {state.kind === "ready" && (

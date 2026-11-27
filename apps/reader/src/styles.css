@@ -147,3 +147,16 @@ footer p { margin: 0.25rem 0; }
 .would-hide { margin: 0.2rem 0 0.4rem; padding-left: 1.2rem; font-size: 0.9rem; }
 .learned { margin-top: 0.75rem; font-size: 0.92rem; }
 .learned summary { cursor: pointer; color: var(--muted); }
+
+/* Briefs from roundup newsletters (P5): News in Brief on the Front Page, In brief on a section's page */
+.in-brief { border-top: 3px double var(--rule); border-bottom: 1px solid var(--rule); padding: 0.75rem 0 0.5rem; margin: 0.25rem 0 0.5rem; }
+.in-brief-title { font-family: var(--serif); font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 0.25rem; }
+.in-brief ul { list-style: none; margin: 0; padding: 0; }
+.in-brief li { border-top: 1px solid var(--rule); }
+.in-brief li:first-child { border-top: none; }
+.in-brief li a { display: block; text-decoration: none; padding: 0.6rem 0; }
+.in-brief h3 { font-family: var(--serif); font-size: 1.02rem; line-height: 1.25; margin: 0 0 0.2rem; }
+.in-brief .summary { font-size: 0.92rem; -webkit-line-clamp: 3; }
+.in-brief .meta { margin: 0.25rem 0 0; }
+.in-brief li.read h3 { color: var(--muted); }
+.in-brief-more { display: inline-block; font-size: 0.9rem; color: var(--muted); padding: 0.4rem 0; }

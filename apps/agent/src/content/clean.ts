@@ -32,10 +32,13 @@ const ALLOWED_TAGS = [
 
 const FOOTER = /^\s*(unsubscribe|manage (your )?(subscription|preferences|email settings)|you('re| are) (receiving|subscribed)|update your (email )?preferences|forwarded this email\?)/i;
 
+const EMAIL_VALUE = /^[^@\s/?#]+@[^@\s/?#]+\.[a-z]{2,}$/i;
+
 export function stripTracking(href: string): string {
   try {
     const u = new URL(href);
-    for (const k of [...u.searchParams.keys()]) if (k.startsWith("utm_")) u.searchParams.delete(k);
+    // utm_* tracking, and your own address, which some newsletters put in every link.
+    for (const [k, v] of [...u.searchParams.entries()]) if (k.startsWith("utm_") || EMAIL_VALUE.test(v)) u.searchParams.delete(k);
     return u.toString();
   } catch {
     return href;
@@ -60,12 +63,15 @@ export function canonicalFrom(links: string[]): string | null {
   return null;
 }
 
-/** Tracking pixels, hidden images, and small icons and avatars. */
-function isChromeImage(img: Element): boolean {
+/** Share buttons drawn as images ("Post", "Email", "Open link"), e.g. x-post.png and link.png. */
+const SHARE_BUTTON = /\/(x-post|twitter|facebook|linkedin|bluesky|threads|whatsapp|share[\w-]*|email-link|link)\.(png|gif|svg|jpe?g|webp)(\?|$)/i;
+
+/** Tracking pixels, hidden images, small icons and avatars, and share buttons. */
+export function isChromeImage(img: Element): boolean {
   const w = Number(img.getAttribute("width"));
   const h = Number(img.getAttribute("height"));
   const style = img.getAttribute("style") ?? "";
-  return (w > 0 && w <= 48) || (h > 0 && h <= 48) || /display\s*:\s*none/i.test(style);
+  return (w > 0 && w <= 48) || (h > 0 && h <= 48) || /display\s*:\s*none/i.test(style) || SHARE_BUTTON.test(img.getAttribute("src") ?? "");
 }
 
 const ACTION_LINKS = /^(like|comment|restack|share|leave a comment|reply|forward|subscribe|upgrade to paid|read in app|view in browser)$/i;
@@ -120,7 +126,7 @@ function removeChrome(document: Document) {
 /** Zero-width and soft characters that email preview padding is made of. */
 const INVISIBLE = /[\u034F\u00AD\u200B-\u200F\u2060\uFEFF]/g;
 
-function opening(text: string, title: string, maxWords = 70): string {
+export function opening(text: string, title: string, maxWords = 70): string {
   const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   const t = norm(title);
   const paras = text
@@ -167,19 +173,10 @@ export function cleanArticle(rawHtml: string | null, fallbackText: string, opts:
     },
   }).trim();
 
-  let text = convert(html, {
-    wordwrap: false,
-    selectors: [
-      { selector: "img", format: "skip" },
-      { selector: "a", options: { ignoreHref: true } },
-      { selector: "table", format: "block" },
-      ...["h1", "h2", "h3", "h4", "h5", "h6"].map((h) => ({ selector: h, options: { uppercase: false } })),
-    ],
-  });
+  let text = htmlToText(html);
   const lines = text.split("\n");
   const cut = lines.findIndex((l, i) => i > lines.length * 0.5 && FOOTER.test(l));
-  if (cut > 0) text = lines.slice(0, cut).join("\n");
-  text = text.replace(INVISIBLE, "").replace(/\u00A0/g, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (cut > 0) text = lines.slice(0, cut).join("\n").trim();
 
   const images = [...html.matchAll(/<img[^>]*\bsrc="([^"]+)"[^>]*>/g)].map((m) => ({ src: m[1]!, tag: m[0] }));
   const hero = images.find(({ tag }) => {
@@ -197,6 +194,20 @@ export function cleanArticle(rawHtml: string | null, fallbackText: string, opts:
     heroImage: hero?.src ?? null,
     images: images.map((i) => i.src),
   };
+}
+
+/** Plain text of cleaned HTML, for word counts, the opening and Gemma. */
+export function htmlToText(html: string): string {
+  const text = convert(html, {
+    wordwrap: false,
+    selectors: [
+      { selector: "img", format: "skip" },
+      { selector: "a", options: { ignoreHref: true } },
+      { selector: "table", format: "block" },
+      ...["h1", "h2", "h3", "h4", "h5", "h6"].map((h) => ({ selector: h, options: { uppercase: false } })),
+    ],
+  });
+  return text.replace(INVISIBLE, "").replace(/\u00A0/g, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 export const countWords = (text: string) => (text.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? []).length;

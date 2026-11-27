@@ -9,6 +9,9 @@ export const Section = z.object({
 });
 export type Section = z.infer<typeof Section>;
 
+/** Briefs from this section form News in Brief on the Front Page (PLAN.md §4.4); others go on their section's page. */
+export const NEWS_IN_BRIEF_SECTION_ID = "current-events";
+
 /** The catch-all section. Every configuration must include it. */
 export const FALLBACK_SECTION_ID = "everything-else";
 

@@ -14,6 +14,8 @@ import type { MailPort } from "./stage-a-email.ts";
 import { learn } from "./affinity.ts";
 import { currentProfile } from "../ai/profile.ts";
 import { draftOne, pendingRequests, rescoreOne } from "../ai/rule-draft.ts";
+import { formatOf, splitItem } from "./split.ts";
+import { FALLBACK_SECTION_ID } from "@broadsheet/shared";
 
 export const MAX_AI_ATTEMPTS = 3;
 
@@ -62,12 +64,37 @@ export async function stageB(opts: {
   const items = db
     .prepare(
       `SELECT i.id, i.title, i.author, i.channel, i.shown_anyway, i.message_id, i.mail_folder_id, i.section_id, i.section_source, i.source_id, i.ai_attempts,
-              coalesce(s.display_name, s.id) AS source_name
-       FROM items i JOIN sources s ON s.id = i.source_id
+              i.kind, i.parent_id, parent.title AS newsletter_title, coalesce(s.display_name, s.id) AS source_name
+       FROM items i JOIN sources s ON s.id = i.source_id LEFT JOIN items parent ON parent.id = i.parent_id
        WHERE i.ai_status = 'pending' AND i.hidden_by IS NULL
        ORDER BY i.published_at DESC LIMIT ?`,
     )
     .all(opts.limit ?? 1000) as any[];
+
+  /** Once every piece of a split newsletter is read, its email is filed where most of its pieces landed. */
+  const fileNewsletter = async (parentId: string): Promise<string> => {
+    const waiting = db.prepare("SELECT count(*) n FROM items WHERE parent_id = ? AND ai_status = 'pending' AND hidden_by IS NULL").get(parentId) as { n: number };
+    if (waiting.n) return "";
+    const parent = db.prepare("SELECT title, message_id, mail_folder_id, section_source FROM items WHERE id = ?").get(parentId) as any;
+    if (!parent || parent.section_source === "fixed" || parent.section_source === "user") return "";
+    const top = db
+      .prepare(
+        `SELECT section_id FROM items WHERE parent_id = ? AND ai_status = 'done' AND hidden_by IS NULL AND coalesce(is_article, 1) = 1 AND section_id IS NOT NULL
+         GROUP BY section_id ORDER BY count(*) DESC, min(piece) LIMIT 1`,
+      )
+      .get(parentId) as { section_id: string } | undefined;
+    const sectionId = top?.section_id ?? FALLBACK_SECTION_ID;
+    db.prepare("UPDATE items SET section_id = ?, section_source = 'ai' WHERE id = ?").run(sectionId, parentId);
+    const target = sections.find((s) => s.id === sectionId)?.mail_folder_id;
+    if (!parent.message_id || parent.mail_folder_id !== sortingId || !target) return "";
+    try {
+      await mail.move(parent.message_id, target);
+      db.prepare("UPDATE items SET mail_folder_id = ? WHERE id = ?").run(target, parentId);
+      return ` (the whole newsletter → ${sections.find((s) => s.id === sectionId)?.name})`;
+    } catch (e) {
+      return ` (couldn't file the newsletter's email: ${(e as Error).message}; it stays in _Sorting)`;
+    }
+  };
 
   try {
     for (const [n, it] of items.entries()) {
@@ -76,6 +103,15 @@ export async function stageB(opts: {
         if (!again.ok) {
           result.deferred = again.reason;
           break;
+        }
+      }
+      // A roundup's email that came back with "Show it again" (or was waiting when you set its format): split it
+      // first. Its pieces are read on the next run.
+      if (it.kind === "article" && !it.parent_id && it.channel === "email" && formatOf(db, it.source_id) !== "normal") {
+        const n = await splitItem(db, opts.contentDir, it.id, formatOf(db, it.source_id) as "roundup" | "multi-section", new Date().toISOString());
+        if (n) {
+          result.outcomes.push({ title: it.title, result: `split into ${n} pieces`, seconds: 0 });
+          continue;
         }
       }
       const fixed = it.section_source === "fixed" ? it.section_id : null;
@@ -90,7 +126,8 @@ export async function stageB(opts: {
       }
 
       log(`Gemma is reading: ${it.title}`);
-      const r = await enrich(llm, { title: it.title, source: it.source_name, author: it.author, text, fixedSection: fixed }, {
+      const piece = it.parent_id ? { kind: it.kind as "brief" | "article", newsletter: it.newsletter_title ?? it.source_name } : null;
+      const r = await enrich(llm, { title: it.title, source: it.source_name, author: it.author, text, fixedSection: fixed, piece }, {
         sections, instructionRules, sourceId: it.source_id, readerProfile, numCtx: config.ai.numCtx,
       }).catch((e: Error) => ({ ok: false as const, error: e.message, attempts: 1, seconds: 0 }));
 
@@ -98,6 +135,7 @@ export async function stageB(opts: {
         const attempts = it.ai_attempts + 1;
         db.prepare("UPDATE items SET ai_attempts = ?, ai_status = ? WHERE id = ?").run(attempts, attempts >= MAX_AI_ATTEMPTS ? "failed" : "pending", it.id);
         result.outcomes.push({ title: it.title, result: attempts >= MAX_AI_ATTEMPTS ? "failed (gave up)" : "failed (will retry)", seconds: r.seconds, error: r.error });
+        if (it.parent_id) await fileNewsletter(it.parent_id);
         continue;
       }
 
@@ -137,6 +175,7 @@ export async function stageB(opts: {
           }
         }
       }
+      if (it.parent_id) filed += await fileNewsletter(it.parent_id);
       const verdict = rule ? `hidden by rule "${rule.id}"` : !isArticle ? "not an article (left out of the paper)" : `${sections.find((s) => s.id === sectionId)?.name}, interest ${d.interest}`;
       result.outcomes.push({ title: it.title, result: `${verdict}${filed}`, seconds: r.seconds });
     }

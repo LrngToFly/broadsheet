@@ -72,13 +72,14 @@ export function syncConfig(db: Db, config: Config, now = new Date().toISOString(
 
     // Sources from the config file
     const upsertSource = db.prepare(
-      `INSERT INTO sources (id, channel, display_name, match_json, site_url, status, fixed_section_id, origin, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'config', ?)
+      `INSERT INTO sources (id, channel, display_name, match_json, site_url, status, fixed_section_id, format, origin, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, coalesce(?, 'normal'), 'config', ?)
        ON CONFLICT(id) DO UPDATE SET channel = excluded.channel, display_name = excluded.display_name,
          match_json = excluded.match_json, status = excluded.status,
          feed_url = CASE WHEN sources.site_url IS excluded.site_url THEN sources.feed_url ELSE NULL END, -- address changed: find the feed again
          site_url = excluded.site_url,
-         fixed_section_id = excluded.fixed_section_id, origin = 'config'`,
+         fixed_section_id = excluded.fixed_section_id, origin = 'config',
+         format = CASE WHEN ? IS NULL THEN sources.format ELSE excluded.format END -- left out of the file: broadsheet format's choice stands`,
     );
     for (const s of config.sources) {
       upsertSource.run(
@@ -89,7 +90,9 @@ export function syncConfig(db: Db, config: Config, now = new Date().toISOString(
         s.channel === "feed" ? s.url : null,
         s.enabled ? "enabled" : "muted",
         s.section ?? null,
+        s.format ?? null,
         now,
+        s.format ?? null,
       );
     }
     const sourceIds = config.sources.map((s) => s.id);

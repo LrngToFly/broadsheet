@@ -156,7 +156,7 @@ export async function previewRule(db: Db, rule: PreviewRule, opts: { llm: LlmPro
     .prepare(
       `SELECT i.id, i.title, i.source_id, i.sender, i.list_id, i.word_count, i.summary, i.opening, s.match_json, coalesce(s.display_name, s.id) AS source_name
        FROM items i JOIN sources s ON s.id = i.source_id
-       WHERE i.published_at >= ? AND i.shown_anyway = 0 AND (i.hidden_by IS NULL OR i.hidden_by = 'user')
+       WHERE i.published_at >= ? AND i.kind != 'newsletter' AND i.shown_anyway = 0 AND (i.hidden_by IS NULL OR i.hidden_by = 'user')
        ORDER BY i.published_at DESC`,
     )
     .all(opts.cutoff) as any[];

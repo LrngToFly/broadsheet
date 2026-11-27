@@ -12,6 +12,8 @@ export type EnrichInput = {
   text: string;
   /** A section the source is fixed to: the model is told, and its choice is ignored. */
   fixedSection: string | null;
+  /** One piece of a split newsletter (PLAN.md §4.4): a brief from a roundup, or an article from a multi-section one. */
+  piece?: { kind: "brief" | "article"; newsletter: string } | null;
 };
 
 export type EnrichContext = {
@@ -61,6 +63,11 @@ export function buildMessages(item: EnrichInput, ctx: EnrichContext): { messages
     `Title: ${item.title}`,
     `Source: ${item.source}${item.author ? ` (by ${item.author})` : ""}`,
     item.fixedSection ? `This source always goes in section "${item.fixedSection}".` : ``,
+    item.piece?.kind === "brief"
+      ? `This is ONE short story from the roundup newsletter "${item.piece.newsletter}". Judge it on its own. Write the summary in 1-2 sentences; key_points may be empty.`
+      : item.piece
+        ? `This is one piece of the newsletter "${item.piece.newsletter}", which covers several subjects. Judge it on its own.`
+        : ``,
     ``,
     text,
   ].join("\n");

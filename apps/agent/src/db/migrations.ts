@@ -246,4 +246,16 @@ export const migrations: string[] = [
     PRIMARY KEY (rule_id, item_id)
   ) STRICT;
   `,
+
+  /* 8: roundup and multi-section newsletters (Phase 2 P5, PLAN.md §4.4) */ `
+  ALTER TABLE sources ADD COLUMN format TEXT NOT NULL DEFAULT 'normal' CHECK (format IN ('normal', 'roundup', 'multi-section'));
+  ALTER TABLE sources ADD COLUMN looks_like TEXT;  -- 'roundup' when a normal newsletter is laid out like one (a suggestion)
+  -- A split newsletter is kept as kind 'newsletter' (not shown; it holds the email and "Read the whole newsletter").
+  -- Each piece is an item of its own: 'brief' (from a roundup) or 'article' (from a multi-section newsletter).
+  ALTER TABLE items ADD COLUMN kind TEXT NOT NULL DEFAULT 'article' CHECK (kind IN ('article', 'brief', 'newsletter'));
+  ALTER TABLE items ADD COLUMN parent_id TEXT REFERENCES items(id) ON DELETE SET NULL;
+  ALTER TABLE items ADD COLUMN piece INTEGER;      -- its place in the newsletter, from 1
+  ALTER TABLE items ADD COLUMN links_json TEXT NOT NULL DEFAULT '[]'; -- a piece's links, to spot the same story elsewhere
+  CREATE INDEX items_parent ON items(parent_id);
+  `,
 ];

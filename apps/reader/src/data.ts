@@ -105,8 +105,13 @@ export function imageUrl(path: string): Promise<string> {
 
 /** Fetch and keep every article and hero image of an edition, so it can all be read offline. */
 export async function prefetch(edition: Edition): Promise<void> {
+  const newsletters = new Set<string>();
   for (const item of edition.items) {
     await stable(item.content).catch(() => {});
+    if (item.newsletter && !newsletters.has(item.newsletter.content)) {
+      newsletters.add(item.newsletter.content);
+      await stable(item.newsletter.content).catch(() => {});
+    }
     if (item.image) await imageUrl(item.image).catch(() => {});
   }
 }

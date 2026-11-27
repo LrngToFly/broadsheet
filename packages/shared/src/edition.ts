@@ -35,6 +35,13 @@ export const ItemCard = z.object({
   saved: z.boolean().default(false),
   /** The section was chosen by you (Move to section), not the AI. */
   sectionByYou: z.boolean().default(false),
+  /** "brief": one short story from a roundup newsletter, shown in News in Brief or a section's In brief list
+   *  (PLAN.md §4.4). A piece of a multi-section newsletter is an "article" with a newsletter. */
+  kind: z.enum(["article", "brief"]).default("article"),
+  /** The whole newsletter this piece came from, for "Read the whole newsletter". */
+  newsletter: z.object({ title: z.string(), content: z.string() }).nullable().default(null),
+  /** Other newsletters that carried the same story; it's shown once. */
+  alsoIn: z.array(z.string()).default([]),
 });
 export type ItemCard = z.infer<typeof ItemCard>;
 

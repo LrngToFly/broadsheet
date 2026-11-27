@@ -23,6 +23,9 @@ import { stageB } from "./pipeline/stage-b.ts";
 import { learn } from "./pipeline/affinity.ts";
 import { currentProfile, profileNotDue, rebuildProfile } from "./ai/profile.ts";
 import { applyReaderActions } from "./pipeline/reader-actions.ts";
+import { setFormat } from "./pipeline/split.ts";
+import { looksLikeRoundup } from "./content/split.ts";
+import { SourceFormat } from "@broadsheet/shared";
 import { OllamaProvider, ollamaStatus } from "./ai/ollama.ts";
 import { acquireLock, keepAwakeWhileRunning, LOG_FILE, rotateLogs } from "./housekeeping.ts";
 import * as launchd from "./launchd.ts";
@@ -229,7 +232,7 @@ function printOutcomes(outcomes: EmailOutcome[], dryRun: boolean) {
   for (const o of outcomes) {
     const tag = o.error ? "❌" : o.decision.action === "include" ? "📰" : o.decision.action === "hide" ? "🙈" : "↩️ ";
     console.log(`${tag} ${o.subject.slice(0, 70)}`);
-    console.log(`     ${o.from} · source ${o.source}${o.newSource ? " (new)" : ""} · ${o.words} words`);
+    console.log(`     ${o.from} · source ${o.source}${o.newSource ? " (new)" : ""} · ${o.words} words${o.pieces ? ` · split into ${o.pieces} pieces` : ""}`);
     console.log(o.error ? `     error: ${o.error}` : `     ${verb} ${o.destination} (${o.decision.why})`);
   }
 }
@@ -413,6 +416,64 @@ async function resummarize(all: boolean) {
   });
 }
 
+/** Your newsletters, how each is laid out, and which look like roundups (PLAN.md §4.4). */
+async function sources() {
+  await withConfigAndDb(async (_config, db) => {
+    // Emails already in the paper count too, not just ones that arrive from now on.
+    const current = db
+      .prepare(
+        `SELECT i.id, i.source_id FROM items i JOIN sources s ON s.id = i.source_id
+         WHERE s.format = 'normal' AND s.looks_like IS NULL AND i.channel = 'email' AND i.kind = 'article' AND i.parent_id IS NULL`,
+      )
+      .all() as { id: string; source_id: string }[];
+    for (const it of current) {
+      const html = await readFile(join(p.content, it.id, "article.html"), "utf8").catch(() => "");
+      if (html && looksLikeRoundup(html)) db.prepare("UPDATE sources SET looks_like = 'roundup' WHERE id = ?").run(it.source_id);
+    }
+    const rows = db
+      .prepare(
+        `SELECT s.id, coalesce(s.display_name, s.id) AS name, s.format, s.looks_like, s.fixed_section_id, s.status, sec.name AS section
+         FROM sources s LEFT JOIN sections sec ON sec.id = s.fixed_section_id ORDER BY lower(coalesce(s.display_name, s.id))`,
+      )
+      .all() as any[];
+    const width = Math.min(40, Math.max(...rows.map((r) => r.name.length)));
+    console.log(`YOUR NEWSLETTERS (${rows.length})`);
+    for (const r of rows) {
+      const bits = [r.format === "normal" ? null : r.format, r.section ? `always ${r.section}` : null, r.status === "muted" ? "muted" : null].filter(Boolean);
+      console.log(`  ${r.name.padEnd(width)}  ${r.id}${bits.length ? `  (${bits.join(", ")})` : ""}`);
+    }
+    const suggested = rows.filter((r) => r.looks_like === "roundup" && r.format === "normal");
+    if (suggested.length) {
+      console.log(`\nTHESE LOOK LIKE ROUNDUPS (many short stories, each under its own heading):`);
+      for (const r of suggested) console.log(`  ${r.name}: broadsheet format ${r.id} roundup`);
+      console.log(`Only if you want their stories as briefs; leave them alone to keep each email as one article.`);
+    }
+  });
+}
+
+/** Set a newsletter's format and apply it to its current emails. */
+async function format(sourceId: string | undefined, value: string | undefined) {
+  const parsed = SourceFormat.safeParse(value);
+  if (!sourceId || !parsed.success) throw new Error("Usage: broadsheet format <newsletter id> normal|roundup|multi-section   (ids: broadsheet sources)");
+  await withConfigAndDb(async (config, db) => {
+    const src = db.prepare("SELECT id, coalesce(display_name, id) AS name, origin FROM sources WHERE id = ?").get(sourceId) as { name: string; origin: string } | undefined;
+    if (!src) throw new Error(`No newsletter with the id "${sourceId}". See: broadsheet sources`);
+    const inFile = config.sources.find((x) => x.id === sourceId);
+    if (inFile?.format && inFile.format !== parsed.data) {
+      throw new Error(`Your config file sets ${src.name} to "${inFile.format}". Change it there instead.`);
+    }
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - config.retention.days * 86_400_000).toISOString();
+    const r = await setFormat(db, p.content, sourceId, parsed.data, cutoff, now.toISOString());
+    const what = { normal: "one article per email", roundup: "each story as a brief", "multi-section": "each piece as its own article" }[parsed.data];
+    console.log(`${src.name} is now "${parsed.data}": ${what}.`);
+    if (r.split) console.log(`Split ${r.split} of its current email(s); Gemma reads any new pieces on the next run while you're away.`);
+    if (r.joined) console.log(`Put ${r.joined} current email(s) back together.`);
+    if (r.current && !r.split && !r.joined && parsed.data !== "normal") console.log(`Its current email(s) had no headings to split at, so they stay as single articles.`);
+    console.log(`The paper updates on the next run (within 15 minutes).`);
+  });
+}
+
 /** Find a site's feed and show its latest posts, without following it (a preview, like Admin's Follow by URL). */
 async function feedCheck(url: string | undefined) {
   if (!url) throw new Error("Usage: broadsheet feed-check <site or feed address>");
@@ -454,6 +515,12 @@ try {
     case "profile":
       await profile(has("rebuild"));
       break;
+    case "sources":
+      await sources();
+      break;
+    case "format":
+      await format(args[0], args[1]);
+      break;
     case "feed-check":
       await feedCheck(args[0]);
       break;
@@ -487,6 +554,9 @@ try {
                             Gemma summarizes and files pending items; only while you're
                             away unless --force
   feed-check <url>          find a site's feed and preview it, without following it
+  sources                   your newsletters, their formats, and which look like roundups
+  format <id> <format>      normal, roundup (each story a brief) or multi-section (each
+                            piece its own article); applies to current emails too
   resummarize [--all]       have Gemma read again the items it dropped or failed on
                             (--all: every current item, e.g. after changing your profile)
   profile [--rebuild]       what your ratings taught it, and the reader profile Gemma uses

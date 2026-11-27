@@ -301,11 +301,11 @@ Some newsletters carry many stories in one email. Each source has a **format**:
 | **Roundup** | A daily news roundup: about a dozen short stories, each a heading and ~120 words | Each story becomes a **brief**: a headline, one or two sentences, its section and its own link |
 | **Multi-section** | A newsletter with a few substantial pieces on different subjects | Each piece becomes its **own article**, with its own summary, in its own section |
 
-- **You choose the format** per newsletter, in Admin (in the config file until then). Telling a roundup apart from a long essay isn't reliable enough to do silently with a 12B model, so Gemma only **suggests** "this looks like a roundup" when it sees many unrelated pieces, and you confirm.
+- **You choose the format** per newsletter, in Admin (until then with `broadsheet format`, or in the config file). Telling a roundup apart from a long essay isn't reliable enough to do silently with a 12B model, so the agent only **suggests** "this looks like a roundup" when an email splits into five or more short pieces (`broadsheet sources`), and you confirm.
 - **Splitting uses the email's structure first, without AI:** headings, dividers, or paragraphs that start with a bold lead-in. A typical roundup has a heading over each story. Where a newsletter's layout defeats that, a per-source instruction rule says how it's laid out ("each story starts with a bold headline"). Gemma then labels and summarizes each piece, which is faster and more reliable than asking it to take a whole newsletter apart.
 - **Where briefs appear:** **Current Events** briefs form a **News in Brief** column on the Front Page. Briefs for other sections (Technology, Financial & Retirement, Gardening, …) appear as an **In brief** list at the top of that section's page.
 - **The same story in several roundups** is shown once, with "also in …".
-- **Each brief or piece** can be rated, moved, saved or hidden like an article, and links to the story's own web page and to the full newsletter.
+- **Each brief or piece** can be rated, moved, saved or hidden like an article, and links to the full newsletter. (A link to the story's own web page waits for newsletters that give one: some roundups' links go to the sources they cite.)
 - **The email** is filed in the section where most of its pieces land.
 
 ---

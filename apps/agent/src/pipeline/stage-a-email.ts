@@ -9,6 +9,7 @@ import { transaction } from "../db/db.ts";
 import { parseEmail, platformOf } from "../content/email.ts";
 import { cleanArticle } from "../content/clean.ts";
 import type { Mail, MessageSummary } from "../microsoft/mail.ts";
+import { afterFiling } from "./split.ts";
 import { classify, matchSource, newSourceFor, splitSenderName, type Decision, type RuleRow, type SourceRow } from "./classify.ts";
 
 export type MailPort = Pick<Mail, "list" | "mime" | "move" | "markRead">;
@@ -22,6 +23,8 @@ export type EmailOutcome = {
   source: string;
   newSource: boolean;
   words: number;
+  /** Split into this many briefs or articles (a roundup or multi-section newsletter). */
+  pieces?: number;
   error?: string;
 };
 
@@ -187,6 +190,12 @@ export async function stageAEmail(opts: {
         });
         await rm(dir, { recursive: true, force: true });
         throw e;
+      }
+      // A roundup or multi-section newsletter becomes its pieces (PLAN.md §4.4). If that goes wrong it's
+      // still in the paper as one article.
+      if (keep && decision.action === "include") {
+        const n = await afterFiling(db, opts.contentDir, itemId, source.id, article.html, nowIso).catch((e: Error) => (opts.log?.(`Couldn't split "${email.subject}": ${e.message}`), 0));
+        if (n) outcomes.at(-1)!.pieces = n;
       }
     } catch (e) {
       counts.errors!++;

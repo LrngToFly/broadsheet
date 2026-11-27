@@ -48,8 +48,8 @@ export function transaction<T>(db: Db, fn: () => T): T {
 export type SyncSummary = { sections: number; sources: number; rules: number; removed: string[] };
 
 /**
- * Copy sections, sources and rules from the config file into the database. Sections still follow the file; sources
- * and rules follow it only when their text in the file changes (Admin and the reader edit them too). Sources the
+ * Copy sections, sources and rules from the config file into the database. Each follows the file only when its text
+ * in the file changes, because Admin (and for rules, the reader) edit them too. Sources the
  * agent created itself (new senders) are left alone. Outlook folder ids
  * already stored for a section are kept.
  */
@@ -62,13 +62,21 @@ export function syncConfig(db: Db, config: Config, now = new Date().toISOString(
       `INSERT INTO sections (id, name, sort_order) VALUES (?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order`,
     );
-    config.sections.forEach((s, i) => upsertSection.run(s.id, s.name, i));
-    const sectionIds = config.sections.map((s) => s.id);
-    for (const row of db.prepare("SELECT id FROM sections").all() as { id: string }[]) {
-      if (!sectionIds.includes(row.id)) {
-        db.prepare("DELETE FROM sections WHERE id = ?").run(row.id);
-        removed.push(`section ${row.id}`);
+    // The database is the master copy (docs/phase-3.md A3): Admin adds, renames, reorders and removes sections, with
+    // their Outlook folders. The file's list is copied in only when it changes (or there are no sections yet).
+    const sectionsHash = createHash("sha256").update(JSON.stringify(config.sections)).digest("hex").slice(0, 16);
+    const seenSections = db.prepare("SELECT value FROM agent_state WHERE key = 'configsections'").get() as { value: string } | undefined;
+    const haveSections = (db.prepare("SELECT count(*) n FROM sections").get() as { n: number }).n > 0;
+    if (seenSections?.value !== sectionsHash || !haveSections) {
+      config.sections.forEach((s, i) => upsertSection.run(s.id, s.name, i));
+      const sectionIds = config.sections.map((s) => s.id);
+      for (const row of db.prepare("SELECT id FROM sections").all() as { id: string }[]) {
+        if (!sectionIds.includes(row.id)) {
+          db.prepare("DELETE FROM sections WHERE id = ?").run(row.id);
+          removed.push(`section ${row.id}`);
+        }
       }
+      db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES ('configsections', ?)").run(sectionsHash);
     }
 
     // Sources from the config file

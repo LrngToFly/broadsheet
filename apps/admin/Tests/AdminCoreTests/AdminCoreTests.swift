@@ -142,3 +142,22 @@ import Testing
         #expect(sourceEditArguments(from: s, name: "", section: "gardening", format: .normal, included: true) == []) // an empty name is ignored
     }
 }
+
+@Suite struct SectionsTests {
+    @Test func buildsTheListForTheAgent() {
+        var draft = [DraftSection(id: "technology", name: "Tech "), DraftSection(id: nil, name: "Cooking & Food")]
+        #expect(sectionsArgument(draft) == #"[{"id":"technology","name":"Tech"},{"name":"Cooking & Food"}]"#)
+        draft[0].name = "Technology"
+        #expect(draft[0].original == "Tech " && draft[1].original == nil)
+        #expect(DraftSection(id: "everything-else", name: "Everything Else").isFallback)
+    }
+
+    @Test func readsTheAgentsAnswer() {
+        let out = """
+        some warning first
+        {"changes":["Add \\"Cooking\\""],"problems":[],"done":["added \\"Cooking\\""],"errors":[]}
+        """
+        #expect(SectionsResult.parse(out) == SectionsResult(changes: [#"Add "Cooking""#], problems: [], done: [#"added "Cooking""#], errors: []))
+        #expect(SectionsResult.parse("Error: no") == nil)
+    }
+}

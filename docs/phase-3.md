@@ -6,7 +6,7 @@ Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): you manage everything
 |---|---|---|---|
 | A1 | **The app and the menu bar:** a menu-bar item showing what the agent is doing (**Idle**, **Waiting — you're active**, **Working (3 of 12)**, **Paused**), the last run, the backlog and errors; **Run now** and **Pause for 1 hour / until tomorrow**; an Admin window with a Status page and the log viewer. Built from the command line into `~/Applications/Broadsheet Admin.app` | see and control the agent without Terminal | built |
 | A2 | **Sources:** one list (email and feeds) with latest post date, posts in the last 30 days and average rating; rename, fixed section, mute, format (normal, roundup, multi-section) and roundup suggestions; sources silent for a long time highlighted with **Disable**. The database becomes the master copy for sources | manage your newsletters | built |
-| A3 | **Sections and folders:** add, rename, reorder or remove sections, with a preview of each Outlook folder change before it's applied | change the paper's sections | |
+| A3 | **Sections and folders:** add, rename, reorder or remove sections, with a preview of each Outlook folder change before it's applied | change the paper's sections | built |
 | A4 | **Rules and your words:** the reader's Rules page and Hidden list in Admin, plus the full condition editor for Check and include rules with **Test against recent mail** | edit rules precisely | |
 | A5 | **Following and feeds:** **Follow by URL** with a preview, **Switch to feed**, best version (email, feed or web page), staleness, and the unsubscribe helper | follow authors without email | |
 | A6 | **Email:** mailbox mode, New sources, skipped mail with **Include this one**, and emails dropped into `_Add` | catch what was missed | |
@@ -52,4 +52,13 @@ The script compiles the package in release mode with Xcode's tools, wraps the pr
 - **The database is now the master copy for sources:** a newsletter in the config file is copied in only when it's new or when its text in the file changes, so changes made in Admin stick. (Rules already worked this way.)
 - **Posts per source** are counted in a `source_posts` table filled by the database itself whenever a post arrives (not for briefs), and kept 90 days, since items last only a few days.
 - **Open the window directly:** `open -a "Broadsheet Admin" --args --admin` starts the app with the Admin window open (otherwise only the menu-bar item appears).
+
+## A3: Sections and folders
+
+- **The Sections page** lists the sections in the paper's order, each with its current articles and the newsletters always filed there. Rename one in place, move it up or down, add one, or remove one (Everything Else can't be removed).
+- **Preview changes** shows, in words, what will happen in the paper and in Outlook, for example *Rename "Financial & Retirement" to "Money", and its Outlook folder* or *Remove "Outdoors": its 12 emails move to the "Everything Else" folder; …; then its empty Outlook folder is deleted*. Nothing changes until **Apply**.
+- **Removing never deletes mail:** the section's emails move to Everything Else's folder first, then the empty folder is deleted. Its current articles move to Everything Else, and newsletters that were always filed there go back to Gemma choosing.
+- **One change at a time:** each change is made in Outlook first, then in the database. If Outlook fails, it stops there; what was done stays done, and applying the same list again finishes the rest.
+- **The database is now the master copy for sections** too: the config file's list is copied in only when it changes.
+- **From Terminal:** `broadsheet sections` lists them; `broadsheet sections set '[{"id":"technology","name":"Tech"},{"name":"Cooking"}]' --dry-run` previews (drop `--dry-run` to apply). An entry with no id is a new section.
 

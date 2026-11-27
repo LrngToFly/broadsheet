@@ -11,7 +11,8 @@ import { ConfigError, loadConfig } from "./config.ts";
 import { openDb, schemaVersion, syncConfig, type Db } from "./db/db.ts";
 import { Auth, NotSignedInError } from "./microsoft/auth.ts";
 import { Graph } from "./microsoft/graph.ts";
-import { checkFolders, ensureFolders, type FolderReport } from "./microsoft/mail-folders.ts";
+import { checkFolders, ensureFolders, graphFolderPort, type FolderReport } from "./microsoft/mail-folders.ts";
+import { applySections, describePlan, planSections, type WantedSection } from "./pipeline/sections.ts";
 import { AppFolder } from "./microsoft/onedrive.ts";
 import { aiMayRun, sampleActivity } from "./activity.ts";
 import { Mail } from "./microsoft/mail.ts";
@@ -527,6 +528,64 @@ async function source(id: string | undefined) {
   });
 }
 
+/**
+ * The paper's sections. `sections` lists them; `sections set '<json>'` takes the whole list you want, in order, as
+ * [{"id":"technology","name":"Tech"},{"name":"Cooking"},…] (no id: a new section), previews it with --dry-run, and
+ * applies it with the Outlook folders. --json prints the result for Admin.
+ */
+async function sections(sub: string | undefined, listJson: string | undefined) {
+  await withConfigAndDb(async (config, db) => {
+    if (!sub) {
+      const rows = db
+        .prepare(
+          `SELECT s.id, s.name, (SELECT count(*) FROM items i WHERE i.section_id = s.id AND i.kind != 'newsletter') AS articles,
+                  (SELECT count(*) FROM sources o WHERE o.fixed_section_id = s.id) AS sources
+           FROM sections s ORDER BY sort_order`,
+        )
+        .all() as { id: string; name: string; articles: number; sources: number }[];
+      console.log("SECTIONS (in the paper's order)");
+      for (const r of rows) console.log(`  ${r.name.padEnd(28)} ${r.id.padEnd(20)} ${r.articles} current article(s)${r.sources ? `, ${r.sources} newsletter(s) always here` : ""}`);
+      console.log(`\nTo change them: Admin's Sections page, or broadsheet sections set '<json list>' [--dry-run]`);
+      return;
+    }
+    if (sub !== "set" || !listJson) throw new Error(`Usage: broadsheet sections set '[{"id":"technology","name":"Tech"},{"name":"Cooking"}]' [--dry-run] [--json]`);
+    let wanted: WantedSection[];
+    try {
+      wanted = JSON.parse(listJson);
+      if (!Array.isArray(wanted) || !wanted.every((w) => w && typeof w.name === "string" && (w.id === undefined || typeof w.id === "string"))) throw new Error();
+    } catch {
+      throw new Error('The list must be JSON like [{"id":"technology","name":"Tech"},{"name":"Cooking"}]');
+    }
+    const plan = planSections(db, wanted);
+    const json = has("json");
+    const { graph } = services(config);
+    const mail = new Mail(graph);
+    // How many emails each removed section's folder holds, for the preview.
+    const emails = new Map<string, number>();
+    if (plan.remove.length) {
+      const report = await checkFolders(graph, config, db).catch(() => null);
+      for (const f of report?.folders ?? []) if (f.emails !== undefined) emails.set(f.key, f.emails);
+    }
+    const changes = describePlan(plan, db, emails);
+    if (has("dry-run")) {
+      if (json) console.log(JSON.stringify({ changes, problems: plan.problems }));
+      else {
+        console.log(changes.length ? changes.map((c) => `  ${c}`).join("\n") : "  Nothing would change.");
+        for (const p of plan.problems) console.log(`  ❌ ${p}`);
+      }
+      return;
+    }
+    const r = await applySections(db, plan, graphFolderPort(graph, mail, db));
+    if (json) console.log(JSON.stringify({ changes, problems: plan.problems, done: r.done, errors: r.errors }));
+    else {
+      console.log(r.done.length ? `Done: ${r.done.join("; ")}.` : "Nothing changed.");
+      for (const e of r.errors) console.log(`  ❌ ${e}`);
+      if (r.done.length) console.log("The paper's sections update on the next run (within 15 minutes).");
+    }
+    if (r.errors.length) process.exitCode = 1;
+  });
+}
+
 /** Pause scheduled runs (Admin's menu bar does the same). */
 async function pause(arg: string | undefined) {
   if (!arg) throw new Error("Usage: broadsheet pause 30m|1h|tomorrow|off");
@@ -655,6 +714,9 @@ try {
     case "format":
       await format(args[0], args[1]);
       break;
+    case "sections":
+      await sections(args[0]?.startsWith("--") ? undefined : args[0], args[1]);
+      break;
     case "source":
       await source(args[0]);
       break;
@@ -718,6 +780,10 @@ try {
   eval clear                delete the test set, runs and pages
   profile [--rebuild]       what your ratings taught it, and the reader profile Gemma uses
                             (--rebuild: have Gemma rewrite the profile now)
+  sections                  the paper's sections, in order
+  sections set '<json>' [--dry-run]
+                            change them (add, rename, reorder, remove) with their Outlook
+                            folders; a removed section's emails go to Everything Else
   pause 30m|1h|tomorrow|off pause scheduled runs (tomorrow = until 6 a.m.); run --force still runs
   install                   run the agent every 15 minutes in the background (launchd)
   uninstall                 stop running it in the background

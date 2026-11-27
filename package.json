@@ -9,7 +9,7 @@
   },
   "packageManager": "pnpm@12.23.0",
   "scripts": {
-    "typecheck": "pnpm -r --filter ./packages/* --filter ./apps/* run typecheck",
+    "typecheck": "pnpm -r --filter './packages/*' --filter './apps/*' run typecheck",
     "test": "vitest run",
     "agent": "node apps/agent/src/cli.ts"
   },

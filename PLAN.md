@@ -2,7 +2,7 @@
 
 *Draft for review · revision 3 · 2026-11-26*
 
-The Broadsheet turns the newsletters in your inbox (Substack and similar), plus blogs you follow by URL and later your podcasts, into a private, ranked, sectioned "newspaper". You read it on an iPhone, iPad or any web browser. All processing runs on your Mac mini (M4, 24 GB), and by default the AI runs **on the Mac mini itself**, so nothing about what you read or like leaves your house except the edition stored in your private OneDrive.
+The Broadsheet turns the newsletters in your inbox (Substack and similar), plus blogs you follow by URL, into a private, ranked, sectioned "newspaper". You read it on an iPhone, iPad or any web browser. All processing runs on your Mac mini (M4, 24 GB), and by default the AI runs **on the Mac mini itself**, so nothing about what you read or like leaves your house except the edition stored in your private OneDrive.
 
 **Settled so far:**
 
@@ -420,7 +420,7 @@ The database file is `~/Library/Application Support/Broadsheet/broadsheet.db`.
 | Table | Key fields | Retention |
 |---|---|---|
 | `sections` | id, name, sort_order, mail_folder_id, is_system (`_Sorting`, `_Add`, `Everything Else`) | Long term |
-| `sources` | id, channel (`email` \| `feed` \| `podcast`), display_name, author, sender_address, feed_url, site_url, platform, status (`pending` \| `enabled` \| `muted`), fixed_section_id, last_post_at, posts_30d, avg_rating | Long term |
+| `sources` | id, channel (`email` \| `feed`), display_name, author, sender_address, feed_url, site_url, platform, status (`pending` \| `enabled` \| `muted`), fixed_section_id, last_post_at, posts_30d, avg_rating | Long term |
 | `rules` | id, kind (`include` \| `check` \| `instruction`), wording (your plain-English text), conditions (JSON for include/check: sender / domain / subject / list-id / body / links-to / word count / category, AND/OR), instruction_text, scope_source_id (null = all sources), mail_action (`deleted_items` \| `leave`), fixed_section_id, status (`suggested` \| `active` \| `off`), origin (`hidden_item` \| `typed` \| `admin`), version, updated_at, updated_by, matches_30d | Long term |
 | `hidden` | item_id, rule_id or null (you hid it), reason, note, hidden_at | Same as the item (**3–4 days**); the lasting part is in `preference_records` |
 | `feed_state` | source_id, etag, last_modified, next_poll_at, poll_interval, last_error | Long term (no content) |
@@ -518,12 +518,9 @@ Logs are written as structured JSON to `~/Library/Logs/Broadsheet/`.
 
 ---
 
-## 10. Podcasts (later phase)
+## 10. Podcasts: not part of the Broadsheet
 
-1. Read your followed shows from the Podcasts app's local library on the Mac mini, which is synced from your iPhone through iCloud. This needs *Full Disk Access*, and the database format is undocumented, so it could break with a macOS update. The fallback is an OPML import.
-2. Poll each show's RSS feed for new episodes.
-3. Rank episodes against your reader profile using the show notes, with Gemma.
-4. A **Listen** section in the PWA with a link that opens each episode in the Podcasts app. Ratings feed back into ranking the same way.
+Podcasts will be a separate app (decided 2026-11-27). The section number is kept so links to later sections still work.
 
 ---
 
@@ -535,8 +532,7 @@ Logs are written as structured JSON to `~/Library/Logs/Broadsheet/`.
 | **1. Prototype (Gemma)** | Monorepo, schema. Agent Stages A+B with Gemma via Ollama and **idle gating**. **Both channels:** the dedicated mailbox (include everything, skip transactional mail, exclude rules, the `_Add` folder) and direct feeds by URL. Retention pruning. Section folders in Outlook. PWA: sign-in, Front Page, sections, reader. Sources, rules (Check and plain-English Instruction rules) and sections set in a config file for now. launchd at background priority. | Today's newsletters appear summarized on your phone and filed in Outlook, without you noticing the Mac working |
 | **2. Personalization** | Ratings and section moves round-trip, tag affinity, ranking, reader profile, retention, `status.json`, `broadsheet eval`. **Don't show things like this**, Gemma-drafted rule suggestions, and the reader's **Rules** page and **Hidden** list ([§4.3](#43-hiding-things-and-rules-in-plain-english)). **In your own words** and notes on ratings ([§4.2](#42-ranking)). **Roundup** and multi-section newsletters split into briefs and articles ([§4.4](#44-roundup-newsletters)) | The order changes based on your ratings |
 | **3. Admin & sources** | SwiftUI Admin: sections and folders, sources, Follow by URL with preview, the full rule editor with testing, mailbox mode, New/Pending sources, skipped mail, data export and forget, AI, politeness, menu bar. Also: newsletter-like detection from content, best-version selection (email, feed or web page), staleness, Switch to feed, unsubscribe helper. | You manage everything without touching config files |
-| **4. Podcasts** | Subscription import, episode ranking, Listen section | Recommended episodes appear |
-| **5. Ready to share** | Install script, `doctor`, fork-and-deploy guide, backups | Someone else can set up their own copy from the docs alone |
+| **4. Ready to share** | Install script, `doctor`, fork-and-deploy guide, backups | Someone else can set up their own copy from the docs alone |
 
 **Biggest risks**, all tested in Phase 0:
 - **Microsoft sign-in redirects in an iOS standalone PWA.** ✅ Works (see below). Fallback, if a future iOS change breaks it: sign in in a normal Safari tab, or front the app with Cloudflare Access (email one-time code, nothing to install).

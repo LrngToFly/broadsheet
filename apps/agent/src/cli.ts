@@ -28,8 +28,10 @@ import { applyActions, applyReaderActions } from "./pipeline/reader-actions.ts";
 import { buildRulesFile } from "./pipeline/rules.ts";
 import { parseExactRule, saveExactRule, testRule } from "./pipeline/rule-editor.ts";
 import { follow, guessSite, previewFeed, switchToFeed } from "./pipeline/following.ts";
+import { approveNew, backfillSkipped, includeSkipped, mailReview } from "./pipeline/mail-review.ts";
 import { setFormat } from "./pipeline/split.ts";
 import { parsePause, pausedUntil, setPause } from "./pause.ts";
+import { describeSettings, isSettingKey, parseSettingValue, SETTINGS, setSetting, withSettings } from "./settings.ts";
 import { editSource, type SourceChanges } from "./pipeline/sources.ts";
 import { looksLikeRoundup } from "./content/split.ts";
 import { clearEval, loadSet, reportHtml, runModel, saveSet, savedRun, fingerprint, type EvalRun } from "./ai/eval.ts";
@@ -58,10 +60,12 @@ function services(config: Config) {
 }
 
 async function withConfigAndDb<T>(fn: (config: Config, db: Db) => Promise<T>): Promise<T> {
-  const config = await loadConfig(p.config);
+  const file = await loadConfig(p.config);
   const db = openDb(p.db);
   try {
-    syncConfig(db, config);
+    syncConfig(db, file);
+    // Settings changed in Admin win over the file (docs/phase-3.md A6).
+    const config = withSettings(file, db);
     return await fn(config, db);
   } finally {
     db.close();
@@ -719,6 +723,73 @@ async function switchCmd(id: string | undefined) {
   });
 }
 
+// ---- Email and settings (docs/phase-3.md A6) ---------------------------------------------------------
+
+/** Settings Admin can change, their values, and whether Admin or the config file set them. */
+async function settingsCmd() {
+  const file = await loadConfig(p.config);
+  const db = openDb(p.db);
+  try {
+    const rows = describeSettings(file, db);
+    if (has("json")) console.log(JSON.stringify(rows));
+    else for (const r of rows) console.log(`  ${r.key.padEnd(26)} ${JSON.stringify(r.value)}${r.fromAdmin ? `   (set in Admin; the file says ${JSON.stringify(r.fileValue)})` : ""}`);
+  } finally {
+    db.close();
+  }
+}
+
+async function setCmd(key: string | undefined, value: string | undefined) {
+  if (!key || !isSettingKey(key)) throw new Error(`Usage: broadsheet set <key> <value>|--reset   Keys: ${Object.keys(SETTINGS).join(", ")}`);
+  const db = openDb(p.db);
+  try {
+    if (has("reset")) {
+      setSetting(db, key, null);
+      console.log(`${SETTINGS[key].label}: back to the config file's value.`);
+      return;
+    }
+    if (value === undefined) throw new Error(`Usage: broadsheet set ${key} <value>|--reset`);
+    const v = parseSettingValue(key, value);
+    setSetting(db, key, v);
+    console.log(`${SETTINGS[key].label}: ${JSON.stringify(v)}. It applies from the next run.`);
+  } finally {
+    db.close();
+  }
+}
+
+/** Skipped mail, what you dropped into _Add, and how many newsletters are New. */
+async function mailCmd(sub: string | undefined, arg: string | undefined) {
+  await withConfigAndDb(async (config, db) => {
+    if (sub === "include") {
+      if (!arg) throw new Error("Usage: broadsheet mail include <message key>   (keys: broadsheet mail --json)");
+      const r = await includeSkipped(db, new Mail(services(config).graph), arg);
+      if (has("json")) console.log(JSON.stringify(r));
+      else console.log(`Moved "${r.subject}" into _Add: the next run includes it.`);
+      return;
+    }
+    if (sub === "backfill") {
+      const n = await backfillSkipped(db, new Mail(services(config).graph));
+      console.log(`Added ${n} email(s) the agent had left in the Inbox to the skipped list.`);
+      return;
+    }
+    if (sub === "approve") {
+      const n = approveNew(db, arg);
+      if (has("json")) console.log(JSON.stringify({ approved: n }));
+      else console.log(n ? `${n} newsletter(s) no longer marked New.` : "Nothing marked New.");
+      return;
+    }
+    const r = mailReview(db);
+    if (has("json")) {
+      console.log(JSON.stringify(r));
+      return;
+    }
+    console.log(`SKIPPED (left in the Inbox), last 90 days: ${r.skipped.length}`);
+    for (const m of r.skipped.slice(0, 30)) console.log(`  ${m.receivedAt.slice(0, 10)}  ${m.subject.slice(0, 60)}  — ${m.why ?? ""}`);
+    console.log(`\nDROPPED INTO _Add: ${r.added.length}`);
+    for (const m of r.added.slice(0, 15)) console.log(`  ${m.receivedAt.slice(0, 10)}  ${m.subject.slice(0, 60)}`);
+    console.log(`\nNEW NEWSLETTERS (found by the agent, not yet looked at): ${r.newSources}`);
+  });
+}
+
 /** Pause scheduled runs (Admin's menu bar does the same). */
 async function pause(arg: string | undefined) {
   if (!arg) throw new Error("Usage: broadsheet pause 30m|1h|tomorrow|off");
@@ -847,6 +918,15 @@ try {
     case "format":
       await format(args[0], args[1]);
       break;
+    case "settings":
+      await settingsCmd();
+      break;
+    case "set":
+      await setCmd(args[0], args[1]);
+      break;
+    case "mail":
+      await mailCmd(args[0]?.startsWith("--") ? undefined : args[0], args[1]?.startsWith("--") ? undefined : args[1]);
+      break;
     case "follow":
       await followCmd(args[0]);
       break;
@@ -944,6 +1024,12 @@ try {
   sections set '<json>' [--dry-run]
                             change them (add, rename, reorder, remove) with their Outlook
                             folders; a removed section's emails go to Everything Else
+  mail [--json]             skipped mail, emails you dropped into _Add, and New newsletters
+  mail include <key>        include a skipped email (moves it into _Add)
+  mail approve [<id>]       newsletters found by the agent: no longer New
+  mail backfill             add what was left in the Inbox before the mail log started (once)
+  settings                  the settings Admin can change, and where each value comes from
+  set <key> <value>|--reset change one (it wins over the config file until reset)
   pause 30m|1h|tomorrow|off pause scheduled runs (tomorrow = until 6 a.m.); run --force still runs
   install                   run the agent every 15 minutes in the background (launchd)
   uninstall                 stop running it in the background

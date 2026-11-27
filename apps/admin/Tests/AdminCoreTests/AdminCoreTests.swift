@@ -219,3 +219,14 @@ import Testing
         #expect(!s.unsubscribeCandidate) // too few ratings to say
     }
 }
+
+@Suite struct EmailTests {
+    @Test func readsTheMailReviewAndSettings() throws {
+        let r = try #require(decodeAnswer(EmailReview.self, from: #"{"skipped":[{"key":"<1@x>","receivedAt":"2026-11-27T10:00:00Z","sender":"a@x.example","senderName":null,"subject":"Welcome","why":"sign-in, receipt or welcome email","source":null}],"added":[],"newSources":3}"#))
+        #expect(r.skipped.first?.id == "<1@x>" && r.newSources == 3)
+        let s = try #require(decodeAnswer([SettingRow].self, from: #"[{"key":"mailbox.mode","label":"Mailbox mode","value":"shared","fromAdmin":true,"fileValue":"dedicated"},{"key":"mailbox.markFiledAsRead","label":"x","value":false,"fromAdmin":false,"fileValue":false},{"key":"retention.days","label":"y","value":4,"fromAdmin":false}]"#))
+        #expect(s[0].value.string == "shared" && s[0].fileValue?.argument == "dedicated")
+        #expect(s[1].value.bool == false && s[1].value.argument == "false")
+        #expect(s[2].value.argument == "4" && s[2].fileValue == nil)
+    }
+}

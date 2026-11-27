@@ -24,11 +24,12 @@ final class SourcesModel {
 }
 
 enum ChannelFilter: String, CaseIterable, Identifiable {
-    case all = "All", email = "Email", feed = "Feeds", unsubscribe = "👎 Often"
+    case all = "All", new = "New", email = "Email", feed = "Feeds", unsubscribe = "👎 Often"
     var id: Self { self }
     func includes(_ s: SourceRecord) -> Bool {
         switch self {
         case .all: true
+        case .new: s.status == "new"
         case .email: s.channel == "email"
         case .feed: s.channel == "feed"
         case .unsubscribe: s.unsubscribeCandidate

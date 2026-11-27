@@ -9,7 +9,7 @@ Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): you manage everything
 | A3 | **Sections and folders:** add, rename, reorder or remove sections, with a preview of each Outlook folder change before it's applied | change the paper's sections | built |
 | A4 | **Rules and your words:** the reader's Rules page and Hidden list in Admin, plus the full condition editor for Check and include rules with **Test against recent mail** | edit rules precisely | built |
 | A5 | **Following and feeds:** **Follow by URL** with a preview, **Switch to feed**, best version (email, feed or web page), staleness, and the unsubscribe helper | follow authors without email | built |
-| A6 | **Email:** mailbox mode, New sources, skipped mail with **Include this one**, and emails dropped into `_Add` | catch what was missed | |
+| A6 | **Email:** mailbox mode, New sources, skipped mail with **Include this one**, and emails dropped into `_Add` | catch what was missed | built |
 | A7 | **Data, AI and politeness:** export / import, **Forget** ratings, storage sizes; the Ollama model and context size; **Run eval**; idle threshold, limits, backlog behaviour, overnight window | tune it all in one place | |
 
 ## How Admin talks to the agent
@@ -78,4 +78,14 @@ The script compiles the package in release mode with Xcode's tools, wraps the pr
 - **Unsubscribe helper:** the agent keeps each newsletter's unsubscribe link from its emails (the `List-Unsubscribe` header: a web page if there is one, else an email address). **Unsubscribe…** in its panel opens that page in your browser, or an unsubscribe email in Mail; you confirm it there. Newsletters you rate 👎 more often than not (3 or more ratings) get an **Unsubscribe?** badge, and the **👎 Often** filter lists them. Links are collected from new emails, so they fill in over a few days.
 - **Already in place:** the best version of a post (an email and a feed copy of the same post are kept once, the fuller one; a feed teaser is replaced by its web page when that's fuller) and staleness (A2's **Silent** badge with **Turn it off**).
 - **Errors** from the agent's commands are now one line (the message), which is what Admin shows; `BROADSHEET_DEBUG=1` adds where it happened.
+
+## A6: Email
+
+- **The Email page** has four parts:
+  - **Mailbox:** everything in the Inbox (a mailbox just for newsletters, as yours is) or only what an include rule picks (a shared mailbox), and whether filed emails are marked as read.
+  - **New newsletters:** how many the agent found by itself, with **Mark all as looked at**. The Sources page's **New** filter lists them, to rename one, fix its section or turn it off.
+  - **Skipped mail:** what was left in the Inbox as account, sign-in, receipt or welcome mail, or from a newsletter you turned off. **Include this one** moves the email into `_Add`, and the next run includes it whatever it looks like.
+  - **Dropped into _Add:** the emails you put there yourself.
+- **Settings changed in Admin** are kept in the database and win over the config file; **Use the file's** goes back. From Terminal: `broadsheet settings`, `broadsheet set mailbox.mode shared`, `broadsheet set mailbox.mode --reset`. A7 adds the AI and politeness settings the same way.
+- **From Terminal:** `broadsheet mail` (the lists), `broadsheet mail include <key>`, `broadsheet mail approve [<id>]`, and `broadsheet mail backfill`, which adds what the agent had left in the Inbox before the mail log started (run once on 2026-11-27: nothing was left by then).
 

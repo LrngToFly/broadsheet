@@ -1,7 +1,7 @@
 // What you do in the reader (rate, save, move, hide) is shown at once, kept in this device's storage, and sent
 // to the agent as a small file in the OneDrive App Folder (docs/phase-2.md). Offline, it waits and is sent
 // when you're back online. "Read" is remembered on this device only.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ACTIONS_SCHEMA_VERSION, isItemAction, type ActionsFile, type Edition, type HideReason, type ItemCard, type ReaderAction, type RulesFile } from "@broadsheet/shared";
 import { putJson } from "./data.ts";
 
@@ -153,17 +153,40 @@ export function useReaderActions(edition: Edition | null, rules: RulesFile | nul
     [send],
   );
 
-  const [read, setRead] = useState<Set<string>>(() => new Set(load<string[]>(READ, [])));
-  const markRead = useCallback((id: string, isRead = true) => {
-    setRead((prev) => {
-      const next = new Set(prev);
-      if (isRead) next.add(id);
-      else next.delete(id);
-      // Keep the list from growing forever: only the last 500.
-      save(READ, [...next].slice(-500));
-      return next;
-    });
-  }, []);
+  // What you've read: on this device straight away, and from your other devices through the agent (the edition's
+  // read flags). Opening or marking an article also tells the agent, so your other devices learn it too.
+  const [local, setLocal] = useState<Set<string>>(() => new Set(load<string[]>(READ, [])));
+  const elsewhere = useMemo(() => new Set((edition?.items ?? []).filter((i) => i.read).map((i) => i.id)), [edition]);
+  const [unread, setUnread] = useState<Set<string>>(new Set()); // marked unread here, until the agent catches up
+  const read = useMemo(() => new Set([...local, ...[...elsewhere].filter((id) => !unread.has(id))]), [local, elsewhere, unread]);
+
+  // What this session has already told the agent, so reopening an article doesn't send it again.
+  const told = useRef(new Map<string, boolean>());
+  const markRead = useCallback(
+    (id: string, isRead = true) => {
+      setLocal((prev) => {
+        if (prev.has(id) === isRead) return prev;
+        const next = new Set(prev);
+        if (isRead) next.add(id);
+        else next.delete(id);
+        save(READ, [...next].slice(-500)); // keep the list from growing forever
+        return next;
+      });
+      setUnread((prev) => {
+        if (prev.has(id) === !isRead) return prev;
+        const next = new Set(prev);
+        if (isRead) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      // Tell the agent, unless it already knows (the edition says so) or this session already told it.
+      if (elsewhere.has(id) !== isRead && told.current.get(id) !== isRead) {
+        told.current.set(id, isRead);
+        act({ type: "read", itemId: id, read: isRead });
+      }
+    },
+    [elsewhere, act],
+  );
 
   const { items, settings } = overlay();
   return { overlay: items, settings, act, waiting, read, markRead };

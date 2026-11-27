@@ -102,6 +102,10 @@ export async function applyActions(opts: { db: Db; mail: MailPort; actions: Read
       case "save":
         db.prepare("UPDATE items SET saved = ? WHERE id = ?").run(a.saved ? 1 : 0, a.itemId);
         break;
+      case "read":
+        // Only on the item itself, which expires in a few days: no long-term reading history is kept.
+        db.prepare("UPDATE items SET read_at = ? WHERE id = ?").run(a.read ? a.at : null, a.itemId);
+        break;
       case "move": {
         const target = sections.get(a.section);
         if (target === undefined) {

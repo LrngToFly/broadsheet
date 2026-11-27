@@ -42,6 +42,8 @@ export const ItemCard = z.object({
   newsletter: z.object({ title: z.string(), content: z.string() }).nullable().default(null),
   /** Other newsletters that carried the same story; it's shown once. */
   alsoIn: z.array(z.string()).default([]),
+  /** You've read it on one of your devices: after a refresh it's left out of the lists (it's under Read). */
+  read: z.boolean().default(false),
 });
 export type ItemCard = z.infer<typeof ItemCard>;
 

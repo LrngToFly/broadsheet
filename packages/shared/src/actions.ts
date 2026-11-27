@@ -25,6 +25,8 @@ export const ReaderAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("hide"), itemId, reason: HideReason.nullable(), note: z.string().max(1000).nullable(), at }),
   /** "Show it again" from the Hidden list (P3). */
   z.object({ type: z.literal("unhide"), itemId, at }),
+  /** You opened it (or marked it read or unread), so every device can leave it out after a refresh. */
+  z.object({ type: z.literal("read"), itemId, read: z.boolean(), at }),
 
   // ---- The Rules page (P4): not about one item ----
   /** "In your own words": the start of your reader profile. Empty clears it. */

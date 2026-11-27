@@ -99,7 +99,6 @@ footer p { margin: 0.25rem 0; }
 .actions .rate { display: flex; gap: 0.25rem; }
 .actions .rate button { font-size: 1.15rem; padding: 0.25rem 0.6rem; }
 .actions .link { border: none; background: none; padding: 0.35rem 0.25rem; color: var(--muted); text-decoration: underline; }
-.back-end { display: inline-block; margin-top: 1.5rem; padding: 0.5rem 1rem 0.5rem 0; font-size: 1.05rem; }
 
 /* Phase 2 P3: hiding */
 .actions .hide-link { flex-basis: 100%; text-align: left; font-size: 0.85rem; }
@@ -160,3 +159,11 @@ footer p { margin: 0.25rem 0; }
 .in-brief .meta { margin: 0.25rem 0 0; }
 .in-brief li.read h3 { color: var(--muted); }
 .in-brief-more { display: inline-block; font-size: 0.9rem; color: var(--muted); padding: 0.4rem 0; }
+
+/* Articles: the masthead scrolls away, and a slim Back bar stays pinned to the top */
+.masthead.scrolls { position: static; }
+.backbar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 0.75rem; background: var(--paper);
+  margin: 0 calc(-1 * max(1rem, env(safe-area-inset-left))); padding: max(0.45rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-left)) 0.45rem;
+  border-bottom: 1px solid var(--rule); }
+.backbar .back { font-size: 1.05rem; font-weight: 600; color: var(--accent); white-space: nowrap; padding: 0.15rem 0; }
+.backbar-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 0.85rem; }

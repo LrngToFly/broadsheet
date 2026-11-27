@@ -312,4 +312,9 @@ export const migrations: string[] = [
   -- email. NULL: every email is split (as before).
   ALTER TABLE sources ADD COLUMN split_when TEXT;
   `,
+
+  /* 13: what you've read, on any device (2026-11-27) */ `
+  -- Set when you open an article in the reader; it goes with the item when the item expires (no reading history).
+  ALTER TABLE items ADD COLUMN read_at TEXT;
+  `,
 ];

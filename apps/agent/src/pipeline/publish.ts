@@ -124,6 +124,7 @@ export async function publish(opts: {
       kind: r.kind === "brief" ? "brief" : "article",
       newsletter: r.parent_id && newsletterReady.has(r.parent_id) ? { title: r.newsletter_title, content: `items/${r.parent_id}.html` } : null,
       alsoIn: [],
+      read: Boolean(r.read_at),
     });
   }
 

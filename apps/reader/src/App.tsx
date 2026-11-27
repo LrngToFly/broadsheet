@@ -10,7 +10,9 @@ import { applyOverlay, useReaderActions, type NewAction, type Overlay, type Sett
 
 type Route =
   | { page: "front" } | { page: "saved" } | { page: "hidden" } | { page: "rules" } | { page: "section"; id: string } | { page: "item"; id: string }
-  | { page: "newsletter"; id: string }; // the whole newsletter a brief or piece came from, opened from that piece
+  | { page: "newsletter"; id: string } // the whole newsletter a brief or piece came from, opened from that piece
+  | { page: "read" } // what you've read, left out of the lists after a refresh
+  | { page: "briefs"; id: string }; // all of a section's briefs
 
 function parseRoute(hash: string): Route {
   const [, kind, id] = hash.replace(/^#/, "").split("/");
@@ -18,6 +20,8 @@ function parseRoute(hash: string): Route {
   if (kind === "i" && id) return { page: "item", id: decodeURIComponent(id) };
   if (kind === "n" && id) return { page: "newsletter", id: decodeURIComponent(id) };
   if (kind === "saved") return { page: "saved" };
+  if (kind === "read") return { page: "read" };
+  if (kind === "b" && id) return { page: "briefs", id: decodeURIComponent(id) };
   if (kind === "hidden") return { page: "hidden" };
   if (kind === "rules") return { page: "rules" };
   return { page: "front" };
@@ -126,7 +130,8 @@ function BriefList({ title, items, read, more }: { title: string; items: ItemCar
   );
 }
 
-const FRONT_PAGE_BRIEFS = 8;
+/** At most this many briefs in News in Brief and in each section's In brief list; a link shows the rest. */
+const BRIEFS_SHOWN = 4;
 
 /** The lead story, then News in Brief (Current Events briefs), then the rest of the top stories. */
 function FrontPage({ items, read }: { items: ItemCard[]; read: Set<string> }) {
@@ -135,9 +140,9 @@ function FrontPage({ items, read }: { items: ItemCard[]; read: Set<string> }) {
   const news = (
     <BriefList
       title="News in Brief"
-      items={briefs.slice(0, FRONT_PAGE_BRIEFS)}
+      items={briefs.slice(0, BRIEFS_SHOWN)}
       read={read}
-      more={briefs.length > FRONT_PAGE_BRIEFS ? { href: `#/s/${NEWS_IN_BRIEF_SECTION_ID}`, label: `All ${briefs.length} briefs →` } : undefined}
+      more={briefs.length > BRIEFS_SHOWN ? { href: `#/b/${NEWS_IN_BRIEF_SECTION_ID}`, label: `All ${briefs.length} briefs →` } : undefined}
     />
   );
   if (!articles.length) return briefs.length ? news : <ItemList items={[]} read={read} />;
@@ -151,12 +156,17 @@ function FrontPage({ items, read }: { items: ItemCard[]; read: Set<string> }) {
 }
 
 /** A section's page: its briefs first (In brief), then its articles. */
-function SectionPage({ items, read }: { items: ItemCard[]; read: Set<string> }) {
+function SectionPage({ id, items, read }: { id: string; items: ItemCard[]; read: Set<string> }) {
   const briefs = items.filter(isBrief);
   const articles = items.filter((i) => !isBrief(i));
   return (
     <>
-      <BriefList title="In brief" items={briefs} read={read} />
+      <BriefList
+        title="In brief"
+        items={briefs.slice(0, BRIEFS_SHOWN)}
+        read={read}
+        more={briefs.length > BRIEFS_SHOWN ? { href: `#/b/${encodeURIComponent(id)}`, label: `All ${briefs.length} briefs →` } : undefined}
+      />
       {(articles.length > 0 || briefs.length === 0) && <ItemList items={articles} read={read} />}
     </>
   );
@@ -253,7 +263,7 @@ function Article(props: ArticleProps) {
 
   return (
     <article className="article">
-      <BackLink />
+      <BackBar title={item.title} />
       <h1>{item.title}</h1>
       <p className="meta">
         {byline(item)} · {new Date(item.publishedAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · {item.readMinutes} min read
@@ -289,7 +299,6 @@ function Article(props: ArticleProps) {
           </a>
         </p>
       )}
-      <BackLink end />
     </article>
   );
 }
@@ -299,21 +308,26 @@ function Newsletter({ item }: { item: ItemCard }) {
   if (!item.newsletter) return <p className="empty">This article isn't part of a larger newsletter.</p>;
   return (
     <article className="article">
-      <BackLink />
+      <BackBar title={item.newsletter.title} />
       <h1>{item.newsletter.title}</h1>
       <p className="meta">{byline(item)} · {new Date(item.publishedAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · the whole newsletter</p>
       <ArticleBody content={item.newsletter.content} />
-      <BackLink end />
     </article>
   );
 }
 
-/** Back to where you came from (keeps your place in the list), or to the front page. */
-function BackLink({ end = false }: { end?: boolean }) {
+/**
+ * Back to where you came from (keeps your place in the list), or to the front page. It stays pinned to the top of
+ * the screen while you scroll through an article, so it's always one tap away.
+ */
+function BackBar({ title }: { title: string }) {
   return (
-    <a className={end ? "back back-end" : "back"} href="#/" onClick={(e) => (history.length > 1 ? (e.preventDefault(), history.back()) : undefined)}>
-      ‹ Back
-    </a>
+    <div className="backbar">
+      <a className="back" href="#/" onClick={(e) => (history.length > 1 ? (e.preventDefault(), history.back()) : undefined)}>
+        ‹ Back
+      </a>
+      <span className="backbar-title" aria-hidden="true">{title}</span>
+    </div>
   );
 }
 
@@ -665,6 +679,15 @@ export function App() {
     [act],
   );
 
+  // Read before the last refresh: left out of the lists (still under Read). Something you read now stays until the
+  // next refresh, just dimmed, so the list doesn't shift under you.
+  const [readAtLoad, setReadAtLoad] = useState<Set<string>>(new Set());
+  const readRef = useRef(read);
+  readRef.current = read;
+  useEffect(() => setReadAtLoad(new Set(readRef.current)), [rawEdition]);
+  const unreadItems = useMemo(() => (edition ? edition.items.filter((i) => !readAtLoad.has(i.id)) : []), [edition, readAtLoad]);
+  const readItems = useMemo(() => (edition ? edition.items.filter((i) => read.has(i.id)) : []), [edition, read]);
+
   const sectionsWithItems = useMemo(() => {
     if (!edition) return [];
     return edition.sections.filter((s) => edition.items.some((i) => i.section === s.id));
@@ -685,12 +708,12 @@ export function App() {
   }
 
   const item = (route.page === "item" || route.page === "newsletter") && edition ? edition.items.find((i) => i.id === route.id) : undefined;
-  const active = route.page === "section" ? route.id : route.page === "item" || route.page === "newsletter" ? null : route.page;
+  const active = route.page === "section" || route.page === "briefs" ? route.id : route.page === "item" || route.page === "newsletter" ? null : route.page;
   const saved = edition ? edition.items.filter((i) => i.saved) : [];
 
   return (
     <>
-      <header className="masthead">
+      <header className={`masthead${route.page === "item" || route.page === "newsletter" ? " scrolls" : ""}`}>
         <div className="masthead-row">
           <a href="#/" className="masthead-title">The Broadsheet</a>
           <div className="masthead-buttons">
@@ -719,8 +742,12 @@ export function App() {
       <main>
         {state.kind === "loading" && <p className="empty">Fetching today's edition…</p>}
         {state.kind === "error" && <p className="error">Couldn't load the edition: {state.message}</p>}
-        {edition && route.page === "front" && <FrontPage items={edition.items} read={read} />}
-        {edition && route.page === "section" && <SectionPage items={edition.items.filter((i) => i.section === route.id)} read={read} />}
+        {edition && route.page === "front" && <FrontPage items={unreadItems} read={read} />}
+        {edition && route.page === "section" && <SectionPage id={route.id} items={unreadItems.filter((i) => i.section === route.id)} read={read} />}
+        {edition && route.page === "briefs" && (
+          <BriefList title={`In brief: ${edition.sections.find((s) => s.id === route.id)?.name ?? route.id}`} items={unreadItems.filter((i) => isBrief(i) && i.section === route.id)} read={read} />
+        )}
+        {edition && route.page === "read" && <ItemList items={readItems} read={new Set()} empty="Nothing read yet. Articles you open leave the lists after the next refresh, and gather here." />}
         {edition && route.page === "saved" && <ItemList items={saved} read={read} empty="Nothing saved. Saved articles are kept after the others expire." />}
         {edition && route.page === "hidden" && <HiddenList hidden={hiddenList} act={act} />}
         {edition && route.page === "rules" && <RulesPage rules={rules} settings={settings} act={act} hiddenCount={hiddenList.length} />}
@@ -739,6 +766,8 @@ export function App() {
             {waiting > 0 && ` · ${waiting} change${waiting === 1 ? "" : "s"} waiting to sync`}
           </p>
           <p>
+            <a href="#/read" className="footer-link">Read{readItems.length ? ` (${readItems.length})` : ""}</a>
+            {" · "}
             <a href="#/hidden" className="footer-link">Hidden{hiddenList.length ? ` (${hiddenList.length})` : ""}</a>
             {" · "}
             <button

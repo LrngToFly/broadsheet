@@ -4,9 +4,28 @@ import { z } from "zod";
 import { Config } from "@broadsheet/shared";
 import type { Db } from "./db/db.ts";
 
+const weight = z.number().min(0).max(1);
 export const SETTINGS = {
   "mailbox.mode": { schema: z.enum(["dedicated", "shared"]), label: "Mailbox mode" },
   "mailbox.markFiledAsRead": { schema: z.boolean(), label: "Mark filed emails as read" },
+  // A7: AI
+  "ai.model": { schema: z.string().min(1), label: "Ollama model" },
+  "ai.numCtx": { schema: z.number().int().min(2048).max(262144), label: "Context size (tokens)" },
+  // A7: politeness
+  "politeness.idleMinutes": { schema: z.number().int().min(1).max(240), label: "Idle minutes before Gemma works" },
+  "politeness.lockedCountsAsIdle": { schema: z.boolean(), label: "A locked screen counts as idle" },
+  "politeness.maxLoad5m": { schema: z.number().positive().max(64), label: "Skip AI work above this load" },
+  "politeness.backlog": { schema: z.enum(["never-while-active", "trickle"]), label: "Backlog while you're at the Mac" },
+  "politeness.backlogHours": { schema: z.number().positive().max(72), label: "Backlog hours before it trickles" },
+  "politeness.overnightFrom": { schema: z.number().int().min(0).max(23), label: "Overnight window from (hour)" },
+  "politeness.overnightTo": { schema: z.number().int().min(0).max(23), label: "Overnight window to (hour)" },
+  // A7: the paper
+  "retention.days": { schema: z.number().int().min(1).max(14), label: "Days in the paper" },
+  "ranking.content": { schema: weight, label: "Ranking: interest" },
+  "ranking.author": { schema: weight, label: "Ranking: author" },
+  "ranking.freshness": { schema: weight, label: "Ranking: freshness" },
+  "ranking.learnedTopics": { schema: weight, label: "Ranking: learned topics" },
+  "ranking.exploration": { schema: z.number().min(0).max(0.5), label: "Ranking: new-source bonus" },
 } as const;
 export type SettingKey = keyof typeof SETTINGS;
 

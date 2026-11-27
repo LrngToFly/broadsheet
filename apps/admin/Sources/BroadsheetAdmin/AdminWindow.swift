@@ -1,9 +1,9 @@
-// The Admin window: a sidebar of pages. Status and Log (A1), Sources (A2), Sections (A3), Rules and Hidden (A4), Email (A6)…
+// The Admin window: a sidebar of pages. Status and Log (A1), Sources (A2), Sections (A3), Rules and Hidden (A4), Email (A6), Settings and Data (A7).
 import AdminCore
 import SwiftUI
 
 enum Page: String, CaseIterable, Identifiable {
-    case status = "Status", sources = "Sources", sections = "Sections", email = "Email", rules = "Rules", hidden = "Hidden", log = "Log"
+    case status = "Status", sources = "Sources", sections = "Sections", email = "Email", rules = "Rules", hidden = "Hidden", settings = "Settings", data = "Data", log = "Log"
     var id: Self { self }
     var symbol: String {
         switch self {
@@ -13,6 +13,8 @@ enum Page: String, CaseIterable, Identifiable {
         case .email: "envelope"
         case .rules: "line.3.horizontal.decrease.circle"
         case .hidden: "eye.slash"
+        case .settings: "gearshape"
+        case .data: "externaldrive"
         case .log: "doc.plaintext"
         }
     }
@@ -36,6 +38,8 @@ struct AdminWindow: View {
             case .email: EmailPage(agent: agent)
             case .rules: RulesPage(agent: agent)
             case .hidden: HiddenPage(agent: agent)
+            case .settings: SettingsPage(agent: agent)
+            case .data: DataPage(agent: agent)
             case .log: LogPage(file: agent.command?.logFile.map { URL(fileURLWithPath: $0) } ?? agent.locations.log)
             }
         }

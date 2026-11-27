@@ -13,7 +13,7 @@ describe("settings from Admin", () => {
     setSetting(db, "mailbox.mode", parseSettingValue("mailbox.mode", "shared"));
     setSetting(db, "mailbox.markFiledAsRead", parseSettingValue("mailbox.markFiledAsRead", "false"));
     expect(withSettings(file, db).mailbox).toMatchObject({ mode: "shared", markFiledAsRead: false, rootFolder: "The Broadsheet" });
-    expect(describeSettings(file, db)).toEqual([
+    expect(describeSettings(file, db).slice(0, 2)).toEqual([
       { key: "mailbox.mode", label: "Mailbox mode", value: "shared", fromAdmin: true, fileValue: "dedicated" },
       { key: "mailbox.markFiledAsRead", label: "Mark filed emails as read", value: false, fromAdmin: true, fileValue: true },
     ]);

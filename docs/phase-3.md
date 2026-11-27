@@ -1,6 +1,6 @@
 # Phase 3 — Admin & sources
 
-Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): you manage everything without touching config files. The Admin console is a native Mac app (SwiftUI) on the Mac mini, with a menu-bar item ([PLAN.md §8.2](../PLAN.md#82-admin-console-swiftui)).
+Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): you manage everything without touching config files. **All seven milestones are built** (2026-11-27); the config file now only needs your Microsoft client ID. The Admin console is a native Mac app (SwiftUI) on the Mac mini, with a menu-bar item ([PLAN.md §8.2](../PLAN.md#82-admin-console-swiftui)).
 
 | # | Milestone | You can… | Status |
 |---|---|---|---|
@@ -10,7 +10,7 @@ Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): you manage everything
 | A4 | **Rules and your words:** the reader's Rules page and Hidden list in Admin, plus the full condition editor for Check and include rules with **Test against recent mail** | edit rules precisely | built |
 | A5 | **Following and feeds:** **Follow by URL** with a preview, **Switch to feed**, best version (email, feed or web page), staleness, and the unsubscribe helper | follow authors without email | built |
 | A6 | **Email:** mailbox mode, New sources, skipped mail with **Include this one**, and emails dropped into `_Add` | catch what was missed | built |
-| A7 | **Data, AI and politeness:** export / import, **Forget** ratings, storage sizes; the Ollama model and context size; **Run eval**; idle threshold, limits, backlog behaviour, overnight window | tune it all in one place | |
+| A7 | **Data, AI and politeness:** export / import, **Forget** ratings, storage sizes; the Ollama model and context size; **Run eval**; idle threshold, limits, backlog behaviour, overnight window | tune it all in one place | built |
 
 ## How Admin talks to the agent
 
@@ -88,4 +88,17 @@ The script compiles the package in release mode with Xcode's tools, wraps the pr
   - **Dropped into _Add:** the emails you put there yourself.
 - **Settings changed in Admin** are kept in the database and win over the config file; **Use the file's** goes back. From Terminal: `broadsheet settings`, `broadsheet set mailbox.mode shared`, `broadsheet set mailbox.mode --reset`. A7 adds the AI and politeness settings the same way.
 - **From Terminal:** `broadsheet mail` (the lists), `broadsheet mail include <key>`, `broadsheet mail approve [<id>]`, and `broadsheet mail backfill`, which adds what the agent had left in the Inbox before the mail log started (run once on 2026-11-27: nothing was left by then).
+
+## A7: Settings and Data
+
+- **The Settings page:**
+  - **AI:** the Ollama model (from those installed; another one is downloaded first with `ollama pull <name>`) and the context size.
+  - **Compare models:** save a new test set from today's paper, run the comparison (your model alone, or against another installed one) in the background, and open the latest comparison page. It's `broadsheet eval` (P6).
+  - **Sharing the Mac:** idle minutes before Gemma works, whether a locked screen counts as idle, the load above which AI work waits, what happens to a backlog while you're at the Mac, and an optional overnight window for the weekly profile rewrite.
+  - **The paper:** days in the paper (1–14) and the ranking weights.
+  - Each change is saved straight away and wins over the config file; **Use the file's** goes back.
+- **Backlog "trickle"** now works (the setting existed but wasn't used): when items have waited longer than the set hours and the only reason Gemma is waiting is that you're at the Mac, it reads one item per run. It still waits when the Mac is busy, warm or short of memory.
+- **The overnight window** (e.g. 1 to 5, or 22 to 6 across midnight): when set, the weekly profile rewrite waits for it.
+- **The Data page:** what's stored and how big it is; **Export…** and **Import…** (one JSON file with your newsletters, sections, rules, settings, own words, and everything you rated, moved or hid: no article text; importing updates and adds, never deletes, and shows what it would bring in first); and what the Broadsheet has learned from you, with **Forget** for one item or for everything (your own words and rules stay).
+- **From Terminal:** `broadsheet ai`, `storage`, `export <file>`, `import <file> [--dry-run]`, `forget <item id> | --all`, and `set <key> <value>` for every setting (`broadsheet settings` lists them).
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The Broadsheet agent command line (PLAN.md §8.3). More commands arrive with each Phase 1 milestone.
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -15,7 +15,7 @@ import { Graph } from "./microsoft/graph.ts";
 import { checkFolders, ensureFolders, graphFolderPort, type FolderReport } from "./microsoft/mail-folders.ts";
 import { applySections, describePlan, planSections, type WantedSection } from "./pipeline/sections.ts";
 import { AppFolder } from "./microsoft/onedrive.ts";
-import { aiMayRun, sampleActivity } from "./activity.ts";
+import { aiMayRun, inOvernightWindow, sampleActivity } from "./activity.ts";
 import { Mail } from "./microsoft/mail.ts";
 import { stageAEmail, type EmailOutcome } from "./pipeline/stage-a-email.ts";
 import { hiddenCards, publish } from "./pipeline/publish.ts";
@@ -29,6 +29,7 @@ import { buildRulesFile } from "./pipeline/rules.ts";
 import { parseExactRule, saveExactRule, testRule } from "./pipeline/rule-editor.ts";
 import { follow, guessSite, previewFeed, switchToFeed } from "./pipeline/following.ts";
 import { approveNew, backfillSkipped, includeSkipped, mailReview } from "./pipeline/mail-review.ts";
+import { exportData, forget, importData, storage } from "./data.ts";
 import { setFormat } from "./pipeline/split.ts";
 import { parsePause, pausedUntil, setPause } from "./pause.ts";
 import { describeSettings, isSettingKey, parseSettingValue, SETTINGS, setSetting, withSettings } from "./settings.ts";
@@ -345,7 +346,7 @@ async function runLocked(opts: { stage?: string; dryRun: boolean; force: boolean
       }
 
       // About once a week, Gemma rewrites your reader profile from your ratings (while you're still away).
-      if (!b.deferred && !profileNotDue(db)) {
+      if (!b.deferred && !profileNotDue(db) && inOvernightWindow(config.politeness)) {
         const may = opts.force ? ({ ok: true } as const) : aiMayRun(await sampleActivity(), config.politeness);
         if (may.ok) {
           try {
@@ -749,6 +750,11 @@ async function setCmd(key: string | undefined, value: string | undefined) {
     }
     if (value === undefined) throw new Error(`Usage: broadsheet set ${key} <value>|--reset`);
     const v = parseSettingValue(key, value);
+    if (key === "ai.model") {
+      const file = await loadConfig(p.config);
+      const st = await ollamaStatus(file.ai.baseUrl, String(v));
+      if (st.running && !st.hasModel) throw new Error(`"${v}" isn't installed in Ollama (installed: ${st.models.join(", ")}). Download it first: ollama pull ${v}`);
+    }
     setSetting(db, key, v);
     console.log(`${SETTINGS[key].label}: ${JSON.stringify(v)}. It applies from the next run.`);
   } finally {
@@ -787,6 +793,77 @@ async function mailCmd(sub: string | undefined, arg: string | undefined) {
     console.log(`\nDROPPED INTO _Add: ${r.added.length}`);
     for (const m of r.added.slice(0, 15)) console.log(`  ${m.receivedAt.slice(0, 10)}  ${m.subject.slice(0, 60)}`);
     console.log(`\nNEW NEWSLETTERS (found by the agent, not yet looked at): ${r.newSources}`);
+  });
+}
+
+// ---- AI and data (docs/phase-3.md A7) ------------------------------------------------------------------
+
+/** The model in use, what Ollama has installed, and the eval test set and pages. */
+async function aiCmd() {
+  await withConfigAndDb(async (config) => {
+    const st = await ollamaStatus(config.ai.baseUrl, config.ai.model);
+    const set = await loadSet(p.eval).catch(() => null);
+    const reports = (await readdir(p.eval).catch(() => [] as string[])).filter((f) => f.startsWith("report-")).sort().reverse().map((f) => join(p.eval, f));
+    const info = {
+      model: config.ai.model,
+      numCtx: config.ai.numCtx,
+      running: st.running,
+      installed: st.running ? st.models : [],
+      loaded: st.running ? st.loaded : false,
+      evalSet: set ? { savedAt: set.savedAt, count: set.cases.length } : null,
+      reports,
+    };
+    if (has("json")) console.log(JSON.stringify(info));
+    else console.log(`Model: ${info.model} (context ${info.numCtx})${st.running ? `\nInstalled: ${info.installed.join(", ")}` : "\nOllama isn't running."}\nEval set: ${set ? `${set.cases.length} newsletters, saved ${set.savedAt.slice(0, 10)}` : "none"}${reports[0] ? `\nLatest comparison: ${reports[0]}` : ""}`);
+  });
+}
+
+async function storageCmd() {
+  await withConfigAndDb(async (_config, db) => {
+    const s = await storage(db, { db: p.db, content: p.content, eval: p.eval, logs: p.logs });
+    if (has("json")) {
+      console.log(JSON.stringify(s));
+      return;
+    }
+    const mb = (n: number) => `${(n / 1_048_576).toFixed(1)} MB`;
+    console.log(`Database ${mb(s.bytes.database)} · articles ${mb(s.bytes.articles)} · eval ${mb(s.bytes.eval)} · logs ${mb(s.bytes.logs)}`);
+    console.log(Object.entries(s.counts).map(([k, v]) => `${k} ${v}`).join(" · "));
+  });
+}
+
+async function exportCmd(file: string | undefined) {
+  if (!file) throw new Error("Usage: broadsheet export <file.json>");
+  await withConfigAndDb(async (_config, db) => {
+    const data = exportData(db);
+    await writeFile(file, JSON.stringify(data, null, 1), { mode: 0o600 });
+    const summary = { sections: data.sections.length, sources: data.sources.length, rules: data.rules.length, preferences: data.preferences.length, profiles: data.profiles.length };
+    if (has("json")) console.log(JSON.stringify({ file, ...summary }));
+    else console.log(`Exported to ${file}: ${Object.entries(summary).map(([k, v]) => `${v} ${k}`).join(", ")}. It holds your ratings and notes: keep it private.`);
+  });
+}
+
+async function importCmd(file: string | undefined) {
+  if (!file) throw new Error("Usage: broadsheet import <file.json> [--dry-run]");
+  const text = await readFile(file, "utf8");
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("That file isn't valid JSON.");
+  }
+  await withConfigAndDb(async (_config, db) => {
+    const r = importData(db, data, { dryRun: has("dry-run") });
+    if (has("json")) console.log(JSON.stringify(r));
+    else console.log(`${has("dry-run") ? "Would bring in" : "Brought in"}: ${Object.entries(r).map(([k, v]) => `${v} ${k}`).join(", ")}.`);
+  });
+}
+
+async function forgetCmd(itemId: string | undefined) {
+  if (!has("all") && (!itemId || itemId.startsWith("--"))) throw new Error("Usage: broadsheet forget <item id> | --all");
+  await withConfigAndDb(async (_config, db) => {
+    const n = forget(db, has("all") ? null : itemId!);
+    if (has("json")) console.log(JSON.stringify({ forgotten: n }));
+    else console.log(has("all") ? `Forgot everything learned from ${n} rated, moved or hidden item(s). Your own words and rules stay.` : n ? "Forgotten." : "There was nothing to forget for that item.");
   });
 }
 
@@ -918,6 +995,21 @@ try {
     case "format":
       await format(args[0], args[1]);
       break;
+    case "ai":
+      await aiCmd();
+      break;
+    case "storage":
+      await storageCmd();
+      break;
+    case "export":
+      await exportCmd(args[0]);
+      break;
+    case "import":
+      await importCmd(args[0]);
+      break;
+    case "forget":
+      await forgetCmd(args[0]);
+      break;
     case "settings":
       await settingsCmd();
       break;
@@ -1028,6 +1120,11 @@ try {
   mail include <key>        include a skipped email (moves it into _Add)
   mail approve [<id>]       newsletters found by the agent: no longer New
   mail backfill             add what was left in the Inbox before the mail log started (once)
+  ai [--json]               the model in use, what Ollama has installed, the eval set
+  storage [--json]          what's stored and how much space it takes
+  export <file>             sources, rules, settings, your words and ratings, as one file
+  import <file> [--dry-run] bring an export in (updates and adds; deletes nothing)
+  forget <item id> | --all  forget one rating (and move/hide record), or all of them
   settings                  the settings Admin can change, and where each value comes from
   set <key> <value>|--reset change one (it wins over the config file until reset)
   pause 30m|1h|tomorrow|off pause scheduled runs (tomorrow = until 6 a.m.); run --force still runs

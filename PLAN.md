@@ -497,6 +497,7 @@ Ratings are written as one small file per event, so two devices rating at the sa
 | `broadsheet rules test <rule>` | Show which recent emails a rule would match. |
 | `broadsheet eval` | Side-by-side comparison of AI models on saved newsletters. |
 | `broadsheet pause 1h\|tomorrow\|off` | Pause scheduled runs (Admin's menu bar does the same). |
+| `broadsheet sources`, `source`, `sections`, `rules`, `rule`, `hidden`, `act`, `mail`, `follow`, `switch-to-feed`, `settings`, `set`, `ai`, `storage`, `export`, `import`, `forget` | What Admin runs; each works from Terminal too ([docs/phase-3.md](docs/phase-3.md)). |
 
 Logs are written as structured JSON to `~/Library/Logs/Broadsheet/`.
 

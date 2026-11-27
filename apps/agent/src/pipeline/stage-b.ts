@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { Config } from "@broadsheet/shared";
 import type { Db } from "../db/db.ts";
 import type { ActivitySample } from "../activity.ts";
-import { aiMayRun } from "../activity.ts";
+import { aiMayRun, onlyBecauseActive } from "../activity.ts";
 import type { LlmProvider } from "../ai/provider.ts";
 import { enrich } from "../ai/enrich.ts";
 import type { MailPort } from "./stage-a-email.ts";
@@ -46,9 +46,19 @@ export async function stageB(opts: {
 
   const mayRun = async () => (opts.force ? ({ ok: true } as const) : aiMayRun(await opts.sampleActivity(), config.politeness));
   const first = await mayRun();
+  // Backlog "trickle": items have waited longer than backlogHours and only your being at the Mac stops Gemma, so it
+  // reads one item this run (and nothing else) rather than waiting for you to step away (PLAN.md §6.3).
+  let trickle = false;
   if (!first.ok) {
-    result.deferred = first.reason;
-    return result;
+    const oldest = (db.prepare("SELECT min(created_at) t FROM items WHERE ai_status = 'pending' AND hidden_by IS NULL").get() as { t: string | null }).t;
+    const waitedHours = oldest ? (Date.now() - new Date(oldest).getTime()) / 3_600_000 : 0;
+    if (config.politeness.backlog === "trickle" && onlyBecauseActive(first) && result.pendingLeft > 0 && waitedHours >= config.politeness.backlogHours) {
+      trickle = true;
+      log(`The backlog has waited ${Math.floor(waitedHours)} h: reading one item while you're at the Mac (backlog: trickle)`);
+    } else {
+      result.deferred = first.reason;
+      return result;
+    }
   }
 
   const sections = db.prepare("SELECT id, name, mail_folder_id FROM sections ORDER BY sort_order").all() as { id: string; name: string; mail_folder_id: string | null }[];
@@ -71,7 +81,7 @@ export async function stageB(opts: {
        WHERE i.ai_status = 'pending' AND i.hidden_by IS NULL
        ORDER BY i.published_at DESC LIMIT ?`,
     )
-    .all(opts.limit ?? 1000) as any[];
+    .all(trickle ? 1 : (opts.limit ?? 1000)) as any[];
 
   const paperCutoff = new Date(Date.now() - config.retention.days * 86_400_000); // older mail (dropped into _Add) is only filed
 
@@ -184,6 +194,8 @@ export async function stageB(opts: {
       const verdict = rule ? `hidden by rule "${rule.id}"` : !isArticle ? "not an article (left out of the paper)" : `${sections.find((s) => s.id === sectionId)?.name}, interest ${d.interest}`;
       result.outcomes.push({ title: it.title, result: `${verdict}${filed}`, seconds: r.seconds });
     }
+
+    if (trickle && !result.deferred) result.deferred = `${first.ok ? "" : first.reason} (read one item of the backlog)`.trim();
 
     // You changed "In your own words": re-score what's in the paper, from the summaries (a few seconds each).
     if (!result.deferred) {

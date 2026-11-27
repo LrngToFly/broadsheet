@@ -230,3 +230,19 @@ import Testing
         #expect(s[2].value.argument == "4" && s[2].fileValue == nil)
     }
 }
+
+@Suite struct DataTests {
+    @Test func readsAIAndStorage() throws {
+        let ai = try #require(decodeAnswer(AIInfo.self, from: #"{"model":"gemma4:12b","numCtx":16384,"running":true,"installed":["gemma4:12b"],"loaded":false,"evalSet":{"savedAt":"2026-11-27T15:00:00.000Z","count":20},"reports":["/x/report-2.html"]}"#))
+        #expect(ai.evalSet?.count == 20 && ai.reports.first == "/x/report-2.html")
+        let s = try #require(decodeAnswer(StorageInfo.self, from: #"{"bytes":{"database":2048,"articles":0,"eval":0,"logs":10},"counts":{"articles":3,"ratings":5}}"#))
+        #expect(s.counts["ratings"] == 5)
+        #expect(decodeAnswer([String: Int].self, from: #"{"sections":6,"sources":2}"#)?["sources"] == 2)
+    }
+
+    @Test func describesWhatWasLearned() {
+        let p = PreferenceRecord(id: "i", title: "Feud", source: "Civic Desk", rating: -1, note: "a distraction", movedTo: nil, hiddenReason: nil, updatedAt: nil)
+        #expect(p.summary == "👎 · “a distraction”")
+        #expect(PreferenceRecord(id: "j", title: "", source: "", rating: nil, note: nil, movedTo: "Gardening", hiddenReason: "ad", updatedAt: nil).summary == "moved to Gardening · hidden (ad)")
+    }
+}

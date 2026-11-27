@@ -52,6 +52,16 @@ export async function sampleActivity(): Promise<ActivitySample> {
 }
 
 /** May AI work run now? If not, the reason, in words for the log and the status display. */
+/** Is it inside the overnight window (e.g. 1 to 5 means 01:00–04:59; 22 to 6 wraps past midnight)? No window: always. */
+export function inOvernightWindow(p: Pick<Config["politeness"], "overnightFrom" | "overnightTo">, now = new Date()): boolean {
+  if (p.overnightFrom === null || p.overnightTo === null) return true;
+  const h = now.getHours();
+  return p.overnightFrom <= p.overnightTo ? h >= p.overnightFrom && h < p.overnightTo : h >= p.overnightFrom || h < p.overnightTo;
+}
+
+/** The only thing stopping AI work is that you're at the Mac (so a backlog may trickle). */
+export const onlyBecauseActive = (r: { ok: boolean; reason?: string }) => !r.ok && /^you're active/.test(r.reason ?? "");
+
 export function aiMayRun(s: ActivitySample, p: Config["politeness"]): { ok: true } | { ok: false; reason: string } {
   if (s.lowPowerMode) return { ok: false, reason: "Low Power Mode is on" };
   if (s.thermal !== "none") return { ok: false, reason: `thermal warning: ${s.thermal}` };

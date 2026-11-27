@@ -79,8 +79,12 @@ export const Config = z
         lockedCountsAsIdle: z.boolean().default(true),
         /** Skip AI work while the 5-minute load average is above this. */
         maxLoad5m: z.number().positive().default(6),
+        /** Items waiting longer than backlogHours while you're active: wait (default), or read one per run. */
         backlog: z.enum(["never-while-active", "trickle"]).default("never-while-active"),
         backlogHours: z.number().positive().default(6),
+        /** An overnight window (hours, your time) for the weekly profile rewrite, e.g. 1 to 5. Both null: any idle time. */
+        overnightFrom: z.number().int().min(0).max(23).nullable().default(null),
+        overnightTo: z.number().int().min(0).max(23).nullable().default(null),
       })
       .prefault({}),
     retention: z.object({ days: z.number().int().min(1).max(14).default(4) }).prefault({}),

@@ -1,8 +1,8 @@
-// What you do in the reader (rate, save, move) is shown at once, kept in this device's storage, and sent
+// What you do in the reader (rate, save, move, hide) is shown at once, kept in this device's storage, and sent
 // to the agent as a small file in the OneDrive App Folder (docs/phase-2.md). Offline, it waits and is sent
 // when you're back online. "Read" is remembered on this device only.
 import { useCallback, useEffect, useState } from "react";
-import { ACTIONS_SCHEMA_VERSION, type ActionsFile, type Edition, type ItemCard, type ReaderAction } from "@broadsheet/shared";
+import { ACTIONS_SCHEMA_VERSION, type ActionsFile, type Edition, type HideReason, type ItemCard, type ReaderAction } from "@broadsheet/shared";
 import { putJson } from "./data.ts";
 
 const PENDING = "bs-actions-pending"; // not yet uploaded
@@ -51,18 +51,25 @@ async function flush(): Promise<boolean> {
 /** An action as the screens create it; the time is added when it's queued. */
 export type NewAction = ReaderAction extends infer A ? (A extends unknown ? Omit<A, "at"> : never) : never;
 
-export type Overlay = { rating?: -1 | 0 | 1 | null; saved?: boolean; section?: string };
+export type Overlay = { rating?: -1 | 0 | 1 | null; saved?: boolean; section?: string; hidden?: boolean; reason?: HideReason | null; note?: string | null };
 
 /** Your actions that the edition doesn't show yet, by item. */
 function overlayFor(edition: Edition | null): Map<string, Overlay> {
   const items = new Map((edition?.items ?? []).map((i) => [i.id, i]));
+  const hidden = new Map((edition?.hidden ?? []).map((h) => [h.id, h]));
   const generated = edition ? new Date(edition.generatedAt).getTime() : 0;
   let sent = load<ReaderAction[]>(SENT, []);
   // Forget sent actions once the edition reflects them, or once they're old.
   sent = sent.filter((a) => {
     const item = items.get(a.itemId);
-    if (!item || Date.now() - new Date(a.at).getTime() > SENT_TTL_MS) return false;
+    if ((!item && !hidden.has(a.itemId)) || Date.now() - new Date(a.at).getTime() > SENT_TTL_MS) return false;
     if (new Date(a.at).getTime() > generated) return true;
+    if (a.type === "hide") {
+      const h = hidden.get(a.itemId);
+      return !(h?.why.kind === "you" && h.why.reason === a.reason && h.why.note === a.note);
+    }
+    if (a.type === "unhide") return !item;
+    if (!item) return true;
     if (a.type === "rate") return item.rating !== a.rating;
     if (a.type === "save") return item.saved !== a.saved;
     if (a.type === "move") return item.section !== a.section;
@@ -76,6 +83,8 @@ function overlayFor(edition: Edition | null): Map<string, Overlay> {
     if (a.type === "rate") o.rating = a.rating;
     if (a.type === "save") o.saved = a.saved;
     if (a.type === "move") o.section = a.section;
+    if (a.type === "hide") Object.assign(o, { hidden: true, reason: a.reason, note: a.note });
+    if (a.type === "unhide") Object.assign(o, { hidden: false, reason: null, note: null });
     map.set(a.itemId, o);
   }
   return map;

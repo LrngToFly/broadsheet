@@ -100,3 +100,23 @@ footer p { margin: 0.25rem 0; }
 .actions .rate button { font-size: 1.15rem; padding: 0.25rem 0.6rem; }
 .actions .link { border: none; background: none; padding: 0.35rem 0.25rem; color: var(--muted); text-decoration: underline; }
 .back-end { display: inline-block; margin-top: 1.5rem; padding: 0.5rem 1rem 0.5rem 0; font-size: 1.05rem; }
+
+/* Phase 2 P3: hiding */
+.actions .hide-link { flex-basis: 100%; text-align: left; font-size: 0.85rem; }
+.sheet-backdrop { position: fixed; inset: 0; background: rgb(0 0 0 / 0.35); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+.sheet { background: var(--paper); color: var(--ink); width: 100%; max-width: 32rem; border-radius: 14px 14px 0 0; padding: 1rem 1rem max(1rem, env(safe-area-inset-bottom)); box-shadow: 0 -4px 24px rgb(0 0 0 / 0.2); }
+@media (min-width: 40rem) { .sheet-backdrop { align-items: center; } .sheet { border-radius: 14px; } }
+.sheet-title { margin: 0 0 0.25rem; font-size: 0.95rem; }
+.sheet .fine { max-width: none; margin: 0 0 0.6rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
+.chips button, .show-again { font-size: 0.9rem; border: 1px solid var(--rule); background: var(--card); color: var(--ink); border-radius: 999px; padding: 0.4rem 0.85rem; }
+.chips button.on { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+.sheet textarea { width: 100%; font: inherit; font-size: 0.95rem; padding: 0.5rem 0.6rem; border: 1px solid var(--rule); border-radius: 8px; background: var(--card); color: var(--ink); resize: vertical; }
+.sheet-buttons { display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; }
+.sheet .primary { background: var(--accent); color: var(--paper); border: none; padding: 0.55rem 1.4rem; border-radius: 10px; }
+.hidden-intro { max-width: none; margin: 1rem 0 0; }
+.hidden-row { padding: 1rem 0; border-bottom: 1px solid var(--rule); }
+.hidden-row h2 { font-family: var(--serif); font-size: 1.1rem; line-height: 1.25; margin: 0 0 0.25rem; }
+.hidden-row h2 a { text-decoration: none; }
+.hidden-row .why { margin: 0 0 0.6rem; }
+.footer-link { color: var(--muted); }

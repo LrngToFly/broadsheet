@@ -2,7 +2,7 @@
 // Everything is computed from preference_records each time it's needed, so it always reflects your latest
 // ratings, and a better method later can recompute it from the same history.
 //
-//   👍 = +1, 👌 = 0, 👎 = −1. Older ratings count for less (half as much after HALF_LIFE_DAYS), so the
+//   👍 = +1, 👌 = 0, 👎 = −1, and hiding for "Not this author" or "Not my topic" counts as −1. Older ratings count for less (half as much after HALF_LIFE_DAYS), so the
 //   Broadsheet follows your tastes as they change.
 //
 // Each affinity is a value from 0 (you dislike it) through 0.5 (neutral or unknown) to 1 (you like it), and
@@ -49,8 +49,8 @@ function affinityOf(t: Tally | undefined, prior: number): Affinity {
 
 export function learn(db: Db, now = new Date()): Learned {
   const records = db
-    .prepare("SELECT source_id, author, section_id, tags_json, rating, moved_to_section, updated_at FROM preference_records ORDER BY updated_at")
-    .all() as { source_id: string; author: string | null; section_id: string | null; tags_json: string; rating: number | null; moved_to_section: string | null; updated_at: string }[];
+    .prepare("SELECT source_id, author, section_id, tags_json, rating, moved_to_section, hidden_reason, updated_at FROM preference_records ORDER BY updated_at")
+    .all() as { source_id: string; author: string | null; section_id: string | null; tags_json: string; rating: number | null; moved_to_section: string | null; hidden_reason: string | null; updated_at: string }[];
   const sourceNames = new Map((db.prepare("SELECT id, coalesce(display_name, id) AS name FROM sources").all() as { id: string; name: string }[]).map((s) => [s.id, s.name]));
 
   const authors = new Map<string, Tally>();
@@ -68,9 +68,15 @@ export function learn(db: Db, now = new Date()): Learned {
 
   for (const r of records) {
     if (r.moved_to_section) moves.set(r.source_id, [...(moves.get(r.source_id) ?? []), r.moved_to_section]);
-    if (r.rating === null) continue;
     const ageDays = Math.max(0, (now.getTime() - new Date(r.updated_at).getTime()) / 86_400_000);
     const w = 0.5 ** (ageDays / HALF_LIFE_DAYS);
+    // Hiding for "Not this author" or "Not my topic" counts like a 👎 for that author or those topics.
+    if (r.hidden_reason === "author") {
+      if (r.author) add(authors, norm(r.author), -1, w);
+      add(sources, r.source_id, -1, w);
+    }
+    if (r.hidden_reason === "topic") for (const tag of JSON.parse(r.tags_json) as string[]) add(topics, norm(tag), -1, w);
+    if (r.rating === null) continue;
     if (r.author) add(authors, norm(r.author), r.rating, w);
     add(sources, r.source_id, r.rating, w);
     for (const tag of JSON.parse(r.tags_json) as string[]) add(topics, norm(tag), r.rating, w);

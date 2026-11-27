@@ -7,7 +7,7 @@
 // image no current item uses.
 import { readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { Edition, EDITION_SCHEMA_VERSION, FALLBACK_SECTION_ID, type Config, type ItemCard } from "@broadsheet/shared";
+import { Edition, EDITION_SCHEMA_VERSION, FALLBACK_SECTION_ID, HideReason, type Config, type HiddenCard, type ItemCard } from "@broadsheet/shared";
 import type { Db } from "../db/db.ts";
 import { cacheImages } from "../content/images.ts";
 import type { AppFolder } from "../microsoft/onedrive.ts";
@@ -111,8 +111,9 @@ export async function publish(opts: {
   }
 
   cards.sort((a, b) => b.score - a.score || b.publishedAt.localeCompare(a.publishedAt));
+  const hidden = hiddenCards(db, cutoff);
   const sections = (db.prepare("SELECT id, name FROM sections ORDER BY sort_order").all() as { id: string; name: string }[]).map((s) => ({ ...s }));
-  const edition = Edition.parse({ schemaVersion: EDITION_SCHEMA_VERSION, generatedAt: now.toISOString(), sections, items: cards });
+  const edition = Edition.parse({ schemaVersion: EDITION_SCHEMA_VERSION, generatedAt: now.toISOString(), sections, items: cards, hidden });
   await appFolder.putJson("edition.json", edition);
   result.items = cards.length;
 
@@ -124,6 +125,30 @@ export async function publish(opts: {
     await appFolder.putJson("status.json", status);
   }
   return result;
+}
+
+/** What was left out of the paper in the same window, and why, for the reader's Hidden list. */
+function hiddenCards(db: Db, cutoff: string): HiddenCard[] {
+  const rows = db
+    .prepare(
+      `SELECT i.id, i.title, i.author, i.published_at, i.url, i.hidden_by, i.hidden_reason, i.hidden_note, coalesce(s.display_name, s.id) AS source_name, r.wording
+       FROM items i JOIN sources s ON s.id = i.source_id LEFT JOIN rules r ON r.id = i.hidden_by
+       WHERE (i.hidden_by IS NOT NULL OR i.is_article = 0) AND i.published_at >= ?
+       ORDER BY coalesce(i.hidden_at, i.published_at) DESC, i.id`,
+    )
+    .all(cutoff) as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    source: r.source_name,
+    author: r.author,
+    publishedAt: new Date(r.published_at).toISOString(),
+    url: r.url,
+    why:
+      r.hidden_by === "user" ? { kind: "you" as const, reason: HideReason.safeParse(r.hidden_reason).data ?? null, note: r.hidden_note ?? null }
+      : r.hidden_by ? { kind: "rule" as const, ruleId: r.hidden_by, wording: r.wording ?? r.hidden_by }
+      : { kind: "not-article" as const },
+  }));
 }
 
 /** Delete expired items everywhere, and images nothing uses any more (PLAN.md §3.5). */

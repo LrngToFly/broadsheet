@@ -1,4 +1,4 @@
-// Stage A step 1 (PLAN.md §3.6): collect what you did in the reader (ratings, saves, section moves) from
+// Stage A step 1 (PLAN.md §3.6): collect what you did in the reader (ratings, saves, moves, hides) from
 // ratings/ in the OneDrive App Folder, apply it, and delete the files. See docs/phase-2.md.
 import { ActionsFile, type ReaderAction } from "@broadsheet/shared";
 import { transaction, type Db } from "../db/db.ts";
@@ -10,6 +10,8 @@ export type ActionsPort = Pick<AppFolder, "list" | "getJson" | "delete">;
 export type ActionsResult = { files: number; applied: number; ignored: number; errors: string[] };
 
 const FOLDER = "ratings";
+/** Graph's well-known name for the Deleted Items folder. */
+export const DELETED_ITEMS = "deleteditems";
 
 /** Keep (or update) the long-term record of an item you rated, moved or hid. No article text. */
 export function upsertPreference(db: Db, itemId: string, changes: { rating?: number | null; movedTo?: string; hiddenReason?: string | null; hiddenNote?: string | null }, now: string) {
@@ -88,10 +90,48 @@ export async function applyReaderActions(opts: { db: Db; appFolder: ActionsPort;
         }
         break;
       }
-      case "hide":
-      case "unhide":
-        result.ignored++; // arrives with milestone P3
-        continue;
+      case "hide": {
+        transaction(db, () => {
+          // Hidden wins over Saved, so it expires with the rest.
+          db.prepare("UPDATE items SET hidden_by = 'user', hidden_reason = ?, hidden_note = ?, hidden_at = ?, shown_anyway = 0, saved = 0 WHERE id = ?")
+            .run(a.reason, a.note, a.at, a.itemId);
+          upsertPreference(db, a.itemId, { hiddenReason: a.reason, hiddenNote: a.note }, now);
+        });
+        // The email goes to Deleted Items (PLAN.md §4.3), if it's in one of the Broadsheet's folders.
+        const inOurFolders = item.mail_folder_id === sortingId || [...sections.values()].includes(item.mail_folder_id);
+        if (item.channel === "email" && item.message_id && inOurFolders) {
+          try {
+            await mail.move(item.message_id, DELETED_ITEMS);
+            db.prepare("UPDATE items SET mail_folder_id = ? WHERE id = ?").run(DELETED_ITEMS, a.itemId);
+          } catch (e) {
+            result.errors.push(`couldn't move the email for "${a.itemId}" to Deleted Items: ${(e as Error).message}`);
+          }
+        }
+        break;
+      }
+      case "unhide": {
+        const row = db.prepare("SELECT section_id, ai_status FROM items WHERE id = ?").get(a.itemId) as { section_id: string | null; ai_status: string };
+        transaction(db, () => {
+          db.prepare(
+            `UPDATE items SET hidden_by = NULL, hidden_reason = NULL, hidden_note = NULL, hidden_at = NULL, shown_anyway = 1,
+               is_article = CASE WHEN is_article = 0 THEN 1 ELSE is_article END,
+               ai_status = CASE WHEN ai_status = 'skipped' THEN 'pending' ELSE ai_status END
+             WHERE id = ?`,
+          ).run(a.itemId);
+          db.prepare("UPDATE preference_records SET hidden_reason = NULL, hidden_note = NULL, updated_at = ? WHERE item_id = ?").run(now, a.itemId);
+        });
+        // The email comes back from Deleted Items (or the Inbox, if a rule left it there) to its section folder.
+        const home = (row.section_id && sections.get(row.section_id)) || sortingId;
+        if (item.channel === "email" && item.message_id && home && (item.mail_folder_id === DELETED_ITEMS || item.mail_folder_id === null)) {
+          try {
+            await mail.move(item.message_id, home);
+            db.prepare("UPDATE items SET mail_folder_id = ? WHERE id = ?").run(home, a.itemId);
+          } catch (e) {
+            result.errors.push(`couldn't bring back the email for "${a.itemId}": ${(e as Error).message}`);
+          }
+        }
+        break;
+      }
     }
     result.applied++;
   }

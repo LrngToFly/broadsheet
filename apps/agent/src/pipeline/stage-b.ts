@@ -58,7 +58,7 @@ export async function stageB(opts: {
 
   const items = db
     .prepare(
-      `SELECT i.id, i.title, i.author, i.channel, i.message_id, i.mail_folder_id, i.section_id, i.section_source, i.source_id, i.ai_attempts,
+      `SELECT i.id, i.title, i.author, i.channel, i.shown_anyway, i.message_id, i.mail_folder_id, i.section_id, i.section_source, i.source_id, i.ai_attempts,
               coalesce(s.display_name, s.id) AS source_name
        FROM items i JOIN sources s ON s.id = i.source_id
        WHERE i.ai_status = 'pending' AND i.hidden_by IS NULL
@@ -104,12 +104,14 @@ export async function stageB(opts: {
       const hinted = hint && sections.some((s) => s.id === hint) ? hint : null;
       const sectionId = fixed ?? yours ?? hinted ?? d.section;
       const sectionSource = fixed ? "fixed" : yours ? "user" : hinted ? "learned" : "ai";
-      const rule = d.hidden_by_rule ? instructionRules.find((x) => x.id === d.hidden_by_rule) : undefined;
+      // You said "Show it again": no rule or "not an article" verdict hides it now.
+      const rule = d.hidden_by_rule && !it.shown_anyway ? instructionRules.find((x) => x.id === d.hidden_by_rule) : undefined;
+      const isArticle = d.is_article || Boolean(it.shown_anyway);
       db.prepare(
         `UPDATE items SET summary = ?, key_points_json = ?, tags_json = ?, interest = ?, why_its_here = ?, read_minutes = ?, is_article = ?,
            section_id = ?, section_source = ?, hidden_by = ?, model = ?, ai_status = 'done', ai_attempts = ai_attempts + 1 WHERE id = ?`,
       ).run(
-        d.summary, JSON.stringify(d.key_points), JSON.stringify(d.tags), d.interest, d.why_its_here, d.read_minutes, d.is_article ? 1 : 0,
+        d.summary, JSON.stringify(d.key_points), JSON.stringify(d.tags), d.interest, d.why_its_here, d.read_minutes, isArticle ? 1 : 0,
         sectionId, sectionSource, rule?.id ?? null, llm.id, it.id,
       );
 
@@ -130,7 +132,7 @@ export async function stageB(opts: {
           }
         }
       }
-      const verdict = rule ? `hidden by rule "${rule.id}"` : !d.is_article ? "not an article (left out of the paper)" : `${sections.find((s) => s.id === sectionId)?.name}, interest ${d.interest}`;
+      const verdict = rule ? `hidden by rule "${rule.id}"` : !isArticle ? "not an article (left out of the paper)" : `${sections.find((s) => s.id === sectionId)?.name}, interest ${d.interest}`;
       result.outcomes.push({ title: it.title, result: `${verdict}${filed}`, seconds: r.seconds });
     }
   } finally {

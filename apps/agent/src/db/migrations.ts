@@ -202,4 +202,12 @@ export const migrations: string[] = [
     ratings_used    INTEGER NOT NULL
   ) STRICT;
   `,
+
+  /* 6: hiding from the reader (Phase 2 P3) */ `
+  ALTER TABLE items ADD COLUMN hidden_reason TEXT;  -- your quick reason, when hidden_by = 'user'
+  ALTER TABLE items ADD COLUMN hidden_note TEXT;    -- what you typed, if anything
+  ALTER TABLE items ADD COLUMN hidden_at TEXT;
+  -- You said "Show it again": rules and Gemma's "not an article" no longer hide it.
+  ALTER TABLE items ADD COLUMN shown_anyway INTEGER NOT NULL DEFAULT 0;
+  `,
 ];

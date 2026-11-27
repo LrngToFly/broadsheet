@@ -24,8 +24,16 @@ final class SourcesModel {
 }
 
 enum ChannelFilter: String, CaseIterable, Identifiable {
-    case all = "All", email = "Email", feed = "Feeds"
+    case all = "All", email = "Email", feed = "Feeds", unsubscribe = "👎 Often"
     var id: Self { self }
+    func includes(_ s: SourceRecord) -> Bool {
+        switch self {
+        case .all: true
+        case .email: s.channel == "email"
+        case .feed: s.channel == "feed"
+        case .unsubscribe: s.unsubscribeCandidate
+        }
+    }
 }
 
 struct SourcesPage: View {
@@ -35,10 +43,11 @@ struct SourcesPage: View {
     @State private var search = ""
     @State private var selection: SourceRecord.ID?
     @State private var sortOrder = [KeyPathComparator(\SourceRow.name)]
+    @State private var following = false
 
     private var rows: [SourceRow] {
         model.sources
-            .filter { filter == .all || $0.channel == (filter == .email ? "email" : "feed") }
+            .filter { filter.includes($0) }
             .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.address.localizedCaseInsensitiveContains(search) }
             .map { SourceRow(source: $0, sections: model.sections) }
             .sorted(using: sortOrder)
@@ -53,6 +62,7 @@ struct SourcesPage: View {
                     if r.source.status == "new" { Badge("New", .blue) }
                     if r.source.looksLikeRoundup { Badge("Roundup?", .purple) }
                     if r.source.silentDays() != nil { Badge("Silent", .orange) }
+                    if r.source.unsubscribeCandidate { Badge("Unsubscribe?", .red) }
                 }
             }
             .width(min: 180, ideal: 240)
@@ -76,7 +86,14 @@ struct SourcesPage: View {
                 ForEach(ChannelFilter.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
+            Button("Follow by URL…", systemImage: "plus") { following = true }
             Button("Reload", systemImage: "arrow.clockwise") { Task { await model.load(agent.locations) } }
+        }
+        .sheet(isPresented: $following) {
+            FollowSheet(agent: agent, sections: model.sections) { followed in
+                following = false
+                if followed { Task { await model.load(agent.locations) } }
+            }
         }
         .inspector(isPresented: .constant(true)) {
             if let s = model.sources.first(where: { $0.id == selection }) {
@@ -131,6 +148,8 @@ struct SourceEditor: View {
     @State private var included: Bool
     @State private var working = false
     @State private var message: (text: String, ok: Bool)?
+    @State private var switching = false
+    @State private var confirmUnsubscribe = false
 
     init(source: SourceRecord, sections: [SectionRecord], agent: AgentModel, reload: @escaping () async -> Void) {
         self.source = source
@@ -178,6 +197,32 @@ struct SourceEditor: View {
                     Button("Turn it off") { included = false }
                 }
             }
+            Section {
+                if source.channel == "email" {
+                    Button("Switch to its feed…") { switching = true }
+                    Text("Get its posts from its website's feed instead of email, keeping its name, section and ratings.").font(.caption).foregroundStyle(.secondary)
+                }
+                if let link = source.unsubscribeURL, let url = URL(string: link) {
+                    Button("Unsubscribe…") { confirmUnsubscribe = true }
+                        .confirmationDialog("Unsubscribe from \(source.name)?", isPresented: $confirmUnsubscribe) {
+                            Button(url.scheme == "mailto" ? "Write the unsubscribe email" : "Open its unsubscribe page") { NSWorkspace.shared.open(url) }
+                        } message: {
+                            Text(url.scheme == "mailto"
+                                 ? "This opens an email to \(url.absoluteString.replacingOccurrences(of: "mailto:", with: "")) in Mail. Sending it is up to you."
+                                 : "This opens \(url.host() ?? "its") unsubscribe page in your browser, where you confirm it. Nothing is sent until you do.")
+                        }
+                    if source.unsubscribeCandidate {
+                        Text("You've rated it 👎 more often than not.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .sheet(isPresented: $switching) {
+                SwitchToFeedSheet(agent: agent, source: source) { switched in
+                    switching = false
+                    if switched { Task { await reload() } }
+                }
+            }
+
             if source.fromConfigFile {
                 Text("It's also in your config file: editing it there overwrites changes made here.").font(.caption).foregroundStyle(.secondary)
             }

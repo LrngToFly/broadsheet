@@ -1,5 +1,6 @@
 // Read a raw email (MIME) into the facts the pipeline needs.
 import { simpleParser, type AddressObject } from "mailparser";
+import { unsubscribeLink } from "../pipeline/following.ts";
 
 export type ParsedEmail = {
   /** RFC 5322 Message-ID: stable for the life of the email, wherever it's moved. */
@@ -12,6 +13,8 @@ export type ParsedEmail = {
   /** The List-Post header: the post's web address (Substack sets it). */
   listPost: string | null;
   hasListUnsubscribe: boolean;
+  /** The best unsubscribe link from List-Unsubscribe (a web page, else mailto:), for Admin's unsubscribe helper. */
+  listUnsubscribe: string | null;
   /** Lower-cased header names → values, for platform detection. */
   headers: Map<string, string>;
   html: string | null;
@@ -32,6 +35,7 @@ export async function parseEmail(mime: string | Buffer): Promise<ParsedEmail> {
     listId: bracketed(headers.get("list-id"))?.toLowerCase() ?? null,
     listPost: bracketed(headers.get("list-post")),
     hasListUnsubscribe: headers.has("list-unsubscribe"),
+    listUnsubscribe: unsubscribeLink(headers.get("list-unsubscribe")),
     headers,
     html: typeof m.html === "string" ? m.html : null,
     text: m.text ?? "",

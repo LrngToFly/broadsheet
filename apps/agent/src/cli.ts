@@ -27,6 +27,7 @@ import { currentProfile, profileNotDue, rebuildProfile } from "./ai/profile.ts";
 import { applyActions, applyReaderActions } from "./pipeline/reader-actions.ts";
 import { buildRulesFile } from "./pipeline/rules.ts";
 import { parseExactRule, saveExactRule, testRule } from "./pipeline/rule-editor.ts";
+import { follow, guessSite, previewFeed, switchToFeed } from "./pipeline/following.ts";
 import { setFormat } from "./pipeline/split.ts";
 import { parsePause, pausedUntil, setPause } from "./pause.ts";
 import { editSource, type SourceChanges } from "./pipeline/sources.ts";
@@ -673,6 +674,51 @@ async function rule(sub: string | undefined, ruleJson: string | undefined) {
   });
 }
 
+// ---- Following by URL (docs/phase-3.md A5) ------------------------------------------------------------
+
+/** Follow a site's feed: --preview shows its latest posts first. */
+async function followCmd(url: string | undefined) {
+  if (!url || url.startsWith("--")) throw new Error('Usage: broadsheet follow <site address> [--preview] [--name "…"] [--section <id>] [--json]');
+  await withConfigAndDb(async (_config, db) => {
+    if (has("preview")) {
+      const pv = await previewFeed(url);
+      if (has("json")) console.log(JSON.stringify(pv));
+      else {
+        console.log(`Feed: ${pv.feedUrl}\nTitle: ${pv.title}\n`);
+        for (const e of pv.entries) console.log(`  ${e.publishedAt.slice(0, 10)}  ${e.title}`);
+        console.log(`\nTo follow it: broadsheet follow ${url}`);
+      }
+      return;
+    }
+    const r = await follow(db, url, { name: flag("name"), section: flag("section") ?? null, now: new Date().toISOString() });
+    if (has("json")) console.log(JSON.stringify({ id: r.id, name: r.name }));
+    else console.log(`Following "${r.name}" (id ${r.id}). Its posts from the last few days arrive on the next run.`);
+  });
+}
+
+/** Switch an email newsletter to its feed (--preview first). */
+async function switchCmd(id: string | undefined) {
+  if (!id || id.startsWith("--")) throw new Error("Usage: broadsheet switch-to-feed <newsletter id> [--url <site>] [--preview] [--json]");
+  await withConfigAndDb(async (_config, db) => {
+    if (has("preview")) {
+      const site = flag("url") ?? guessSite(db, id);
+      if (!site) throw new Error("Couldn't tell where it lives on the web. Give its site address with --url.");
+      const pv = await previewFeed(site);
+      if (has("json")) console.log(JSON.stringify({ ...pv, site }));
+      else for (const e of pv.entries) console.log(`  ${e.publishedAt.slice(0, 10)}  ${e.title}`);
+      return;
+    }
+    const r = await switchToFeed(db, id, { url: flag("url") });
+    if (has("json")) console.log(JSON.stringify({ feedUrl: r.preview.feedUrl, unsubscribe: r.unsubscribe }));
+    else {
+      console.log(`Switched to its feed (${r.preview.feedUrl}). Its posts now come from the feed.`);
+      console.log(r.unsubscribe
+        ? `Once you unsubscribe from the emails, its posts won't be in your mailbox any more. To unsubscribe: ${r.unsubscribe}`
+        : "Unsubscribe from its emails when you're ready (the link is at the bottom of each email).");
+    }
+  });
+}
+
 /** Pause scheduled runs (Admin's menu bar does the same). */
 async function pause(arg: string | undefined) {
   if (!arg) throw new Error("Usage: broadsheet pause 30m|1h|tomorrow|off");
@@ -760,7 +806,7 @@ async function feedCheck(url: string | undefined) {
   const { feedUrl, feed } = await discoverFeed(url);
   console.log(`Feed: ${feedUrl}\nTitle: ${feed.title}\n`);
   for (const e of feed.entries.slice(0, 8)) console.log(`  ${e.publishedAt.slice(0, 10)}  ${e.title}`);
-  console.log(`\nTo follow it, add to "sources" in your config file:\n  { "id": "…", "channel": "feed", "url": "${url}" }`);
+  console.log(`\nTo follow it: broadsheet follow ${url}   (or Admin's Sources page, Follow by URL)`);
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -800,6 +846,12 @@ try {
       break;
     case "format":
       await format(args[0], args[1]);
+      break;
+    case "follow":
+      await followCmd(args[0]);
+      break;
+    case "switch-to-feed":
+      await switchCmd(args[0]);
       break;
     case "act":
       await act(args[0]);
@@ -865,6 +917,10 @@ try {
                             Gemma summarizes and files pending items; only while you're
                             away unless --force
   feed-check <url>          find a site's feed and preview it, without following it
+  follow <url> [--preview] [--name "…"] [--section <id>]
+                            follow a site's feed (no email sign-up)
+  switch-to-feed <id> [--url <site>] [--preview]
+                            get an email newsletter from its feed instead
   sources                   your newsletters, their formats, and which look like roundups
   source <id> [--name "…"] [--section <id>|none] [--format …] [--mute|--unmute]
                             change one newsletter (current items and emails follow a new section)
@@ -897,6 +953,7 @@ try {
       if (cmd) process.exitCode = 1;
   }
 } catch (e) {
-  console.error(e instanceof ConfigError || e instanceof NotSignedInError ? e.message : e);
+  // The message is enough (Admin shows it as is); BROADSHEET_DEBUG=1 adds where it happened.
+  console.error(process.env.BROADSHEET_DEBUG ? e : e instanceof Error ? `Error: ${e.message}` : e);
   process.exitCode = 1;
 }

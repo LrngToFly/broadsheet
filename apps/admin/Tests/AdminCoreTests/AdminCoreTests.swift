@@ -105,11 +105,11 @@ import Testing
         CREATE TABLE sections (id TEXT, name TEXT, sort_order INTEGER);
         INSERT INTO sections VALUES ('gardening', 'Gardening', 1), ('current-events', 'Current Events', 0);
         CREATE TABLE sources (id TEXT, display_name TEXT, channel TEXT, status TEXT, format TEXT, looks_like TEXT, fixed_section_id TEXT,
-          last_post_at TEXT, origin TEXT, match_json TEXT, feed_url TEXT, site_url TEXT);
+          last_post_at TEXT, origin TEXT, match_json TEXT, feed_url TEXT, site_url TEXT, unsubscribe_url TEXT);
         INSERT INTO sources VALUES
-          ('garden', 'Garden Letter', 'email', 'enabled', 'normal', 'roundup', 'gardening', '\(recent)', 'auto', '{"listId":"garden.substack.com"}', NULL, NULL),
-          ('quiet', NULL, 'email', 'muted', 'roundup', 'roundup', NULL, '\(old)', 'config', '{"sender":"hi@quiet.example"}', NULL, NULL),
-          ('blog', 'A Blog', 'feed', 'enabled', 'normal', NULL, NULL, NULL, 'config', NULL, 'https://x/feed', 'https://x');
+          ('garden', 'Garden Letter', 'email', 'enabled', 'normal', 'roundup', 'gardening', '\(recent)', 'auto', '{"listId":"garden.substack.com"}', NULL, NULL, 'https://garden.example/unsub'),
+          ('quiet', NULL, 'email', 'muted', 'roundup', 'roundup', NULL, '\(old)', 'config', '{"sender":"hi@quiet.example"}', NULL, NULL, NULL),
+          ('blog', 'A Blog', 'feed', 'enabled', 'normal', NULL, NULL, NULL, 'config', NULL, 'https://x/feed', 'https://x', NULL);
         CREATE TABLE source_posts (item_id TEXT, source_id TEXT, published_at TEXT);
         INSERT INTO source_posts VALUES ('1', 'garden', '\(recent)'), ('2', 'garden', '\(recent)'), ('3', 'garden', '\(old)');
         CREATE TABLE preference_records (item_id TEXT, source_id TEXT, rating INTEGER);
@@ -125,6 +125,8 @@ import Testing
         #expect(garden.ratings == 2)
         #expect(garden.address == "garden.substack.com")
         #expect(garden.looksLikeRoundup)
+        #expect(garden.unsubscribeURL == "https://garden.example/unsub")
+        #expect(!garden.unsubscribeCandidate) // rated 👍 and 👌
         #expect(garden.silentDays(now: now) == nil)
         let quiet = s[2]
         #expect(quiet.muted && quiet.fromConfigFile && !quiet.looksLikeRoundup) // already a roundup: no suggestion
@@ -135,7 +137,7 @@ import Testing
 
     @Test func turnsEditsIntoAgentArguments() {
         let s = SourceRecord(id: "garden", name: "Garden Letter", customName: nil, channel: "email", status: "enabled", format: .normal, looksLikeRoundup: false,
-                             fixedSection: "gardening", lastPost: nil, postsLast30Days: 0, averageRating: nil, ratings: 0, address: "", fromConfigFile: false)
+                             fixedSection: "gardening", lastPost: nil, postsLast30Days: 0, averageRating: nil, ratings: 0, address: "", fromConfigFile: false, unsubscribeURL: nil)
         #expect(sourceEditArguments(from: s, name: "Garden Letter", section: "gardening", format: .normal, included: true) == [])
         #expect(sourceEditArguments(from: s, name: " Pen & Trowel ", section: nil, format: .roundup, included: false)
             == ["source", "garden", "--name", "Pen & Trowel", "--section", "none", "--format", "roundup", "--mute"])
@@ -198,5 +200,22 @@ import Testing
         #expect(hidden?.first?.whyText == "You hid this (ad): “never”")
         #expect(actArgument([["type": "unhide", "itemId": "a"]]) == #"[{"itemId":"a","type":"unhide"}]"#)
         #expect(decodeAnswer(ActResult.self, from: #"{"applied":1,"ignored":0,"errors":[]}"#) == ActResult(applied: 1, ignored: 0, errors: []))
+    }
+}
+
+@Suite struct FollowingTests {
+    @Test func readsFeedPreviews() {
+        let p = decodeAnswer(FeedPreview.self, from: #"{"feedUrl":"https://g.example/feed","title":"Garden","siteUrl":null,"entries":[{"title":"Post","publishedAt":"2026-11-27T10:00:00Z","url":null}],"site":"https://g.example/"}"#)
+        #expect(p?.entries.first?.title == "Post")
+        #expect(p?.site == "https://g.example/")
+        #expect(decodeAnswer(SwitchResult.self, from: #"{"feedUrl":"https://g.example/feed","unsubscribe":null}"#)?.unsubscribe == nil)
+    }
+
+    @Test func suggestsUnsubscribingFromWhatYouDislike() {
+        var s = SourceRecord(id: "x", name: "X", customName: nil, channel: "email", status: "enabled", format: .normal, looksLikeRoundup: false, fixedSection: nil,
+                             lastPost: nil, postsLast30Days: 0, averageRating: -0.5, ratings: 3, address: "", fromConfigFile: false, unsubscribeURL: nil)
+        #expect(s.unsubscribeCandidate)
+        s.ratings = 2
+        #expect(!s.unsubscribeCandidate) // too few ratings to say
     }
 }

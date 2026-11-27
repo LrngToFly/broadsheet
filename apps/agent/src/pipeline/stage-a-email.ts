@@ -34,7 +34,8 @@ export const itemIdFor = (messageId: string) => createHash("sha256").update(mess
 const seenKey = (messageId: string) => `mail:${messageId}`;
 
 function loadSources(db: Db): SourceRow[] {
-  return (db.prepare("SELECT id, match_json, status, fixed_section_id FROM sources WHERE channel = 'email'").all() as any[]).map((r) => ({
+  // A newsletter switched to its feed keeps its email match, so emails still sent before you unsubscribe count as it.
+  return (db.prepare("SELECT id, match_json, status, fixed_section_id FROM sources WHERE channel = 'email' OR match_json IS NOT NULL").all() as any[]).map((r) => ({
     id: r.id,
     match: r.match_json ? JSON.parse(r.match_json) : null,
     status: r.status,
@@ -153,6 +154,7 @@ export async function stageAEmail(opts: {
         } else if (keep) {
           db.prepare("UPDATE sources SET last_post_at = max(coalesce(last_post_at, ''), ?) WHERE id = ?").run(m.receivedDateTime, source.id);
         }
+        if (decision.action !== "skip" && email.listUnsubscribe) db.prepare("UPDATE sources SET unsubscribe_url = ? WHERE id = ?").run(email.listUnsubscribe, source.id);
         if (keep && dupe) db.prepare("DELETE FROM items WHERE id = ?").run(dupe.id);
         if (keep) {
           const { author } = splitSenderName(email.from.name);

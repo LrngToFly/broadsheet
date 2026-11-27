@@ -301,4 +301,9 @@ export const migrations: string[] = [
            NULL, CASE WHEN ai_status = 'skipped' THEN hidden_by END, id
     FROM items WHERE channel = 'email' AND parent_id IS NULL;
   `,
+
+  /* 11: unsubscribe links (Phase 3 A5) */ `
+  -- From the newsletter's List-Unsubscribe header: a web page, or an email address. For Admin's unsubscribe helper.
+  ALTER TABLE sources ADD COLUMN unsubscribe_url TEXT;
+  `,
 ];

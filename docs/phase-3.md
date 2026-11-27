@@ -8,7 +8,7 @@ Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): you manage everything
 | A2 | **Sources:** one list (email and feeds) with latest post date, posts in the last 30 days and average rating; rename, fixed section, mute, format (normal, roundup, multi-section) and roundup suggestions; sources silent for a long time highlighted with **Disable**. The database becomes the master copy for sources | manage your newsletters | built |
 | A3 | **Sections and folders:** add, rename, reorder or remove sections, with a preview of each Outlook folder change before it's applied | change the paper's sections | built |
 | A4 | **Rules and your words:** the reader's Rules page and Hidden list in Admin, plus the full condition editor for Check and include rules with **Test against recent mail** | edit rules precisely | built |
-| A5 | **Following and feeds:** **Follow by URL** with a preview, **Switch to feed**, best version (email, feed or web page), staleness, and the unsubscribe helper | follow authors without email | |
+| A5 | **Following and feeds:** **Follow by URL** with a preview, **Switch to feed**, best version (email, feed or web page), staleness, and the unsubscribe helper | follow authors without email | built |
 | A6 | **Email:** mailbox mode, New sources, skipped mail with **Include this one**, and emails dropped into `_Add` | catch what was missed | |
 | A7 | **Data, AI and politeness:** export / import, **Forget** ratings, storage sizes; the Ollama model and context size; **Run eval**; idle threshold, limits, backlog behaviour, overnight window | tune it all in one place | |
 
@@ -70,4 +70,12 @@ The script compiles the package in release mode with Xcode's tools, wraps the pr
 - **The mail log** makes testing possible: for every email the agent looks at, it keeps the sender, subject, list, length, links and what it decided, for 90 days, but not the text. So a condition on the text can only be tested against the last 4 days, and the test says how many it couldn't check. (Skipped mail is logged from 2026-11-27 on; A6's skipped-mail list will use it too.)
 - **The Hidden page** lists what was left out of the paper and why, with **Show it again**.
 - **From Terminal:** `broadsheet rules`, `broadsheet hidden`, `broadsheet rule test|save '<json>'`, and `broadsheet act '<json>'`, which applies the same actions the reader sends (your words, approving, hiding, showing again…).
+
+## A5: Following and feeds
+
+- **Follow by URL** (Sources page toolbar): paste a site's address, **Preview** shows its latest posts, then pick a name and section and **Follow**. No email sign-up; the agent checks the feed every hour. From Terminal: `broadsheet follow <url> [--preview] [--name "…"] [--section <id>]`. Sites with no feed (LinkedIn and some company sites, for example) say so; subscribe by email instead where they offer it.
+- **Switch to its feed** (in an email newsletter's panel): the agent guesses its website from its posts (or a Substack list), previews the feed, and switches. It stays the same newsletter, with its name, section, ratings and history. Emails still arriving before you unsubscribe count as it, and a post that comes both ways is kept once. Afterwards it offers the unsubscribe link. From Terminal: `broadsheet switch-to-feed <id> [--url <site>] [--preview]`.
+- **Unsubscribe helper:** the agent keeps each newsletter's unsubscribe link from its emails (the `List-Unsubscribe` header: a web page if there is one, else an email address). **Unsubscribe…** in its panel opens that page in your browser, or an unsubscribe email in Mail; you confirm it there. Newsletters you rate 👎 more often than not (3 or more ratings) get an **Unsubscribe?** badge, and the **👎 Often** filter lists them. Links are collected from new emails, so they fill in over a few days.
+- **Already in place:** the best version of a post (an email and a feed copy of the same post are kept once, the fuller one; a feed teaser is replaced by its web page when that's fuller) and staleness (A2's **Silent** badge with **Turn it off**).
+- **Errors** from the agent's commands are now one line (the message), which is what Admin shows; `BROADSHEET_DEBUG=1` adds where it happened.
 

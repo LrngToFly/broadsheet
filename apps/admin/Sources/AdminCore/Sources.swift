@@ -37,8 +37,12 @@ public struct SourceRecord: Sendable, Hashable, Identifiable {
     /// Sender, domain, list or feed address: how it's recognised.
     public var address: String
     public var fromConfigFile: Bool
+    /// From its List-Unsubscribe header: a web page or a mailto: address.
+    public var unsubscribeURL: String?
 
     public var muted: Bool { status == "muted" }
+    /// You rate it 👎 often (3 or more ratings, averaging below −0.3): the unsubscribe helper suggests it.
+    public var unsubscribeCandidate: Bool { ratings >= 3 && (averageRating ?? 0) <= -0.3 }
 
     /// No post for this many days or more: worth turning off?
     public static let silentAfterDays = 30
@@ -62,7 +66,7 @@ extension Database {
         return try query(
             """
             SELECT s.id, coalesce(s.display_name, s.id) AS name, s.display_name, s.channel, s.status, s.format, s.looks_like,
-                   s.fixed_section_id, s.last_post_at, s.origin, s.match_json, s.feed_url, s.site_url,
+                   s.fixed_section_id, s.last_post_at, s.origin, s.match_json, s.feed_url, s.site_url, s.unsubscribe_url,
                    (SELECT count(*) FROM source_posts p WHERE p.source_id = s.id AND p.published_at >= ?) AS posts30,
                    (SELECT avg(rating) FROM preference_records r WHERE r.source_id = s.id AND r.rating IS NOT NULL) AS avg_rating,
                    (SELECT count(rating) FROM preference_records r WHERE r.source_id = s.id) AS ratings
@@ -89,6 +93,7 @@ extension SourceRecord {
         averageRating = row["avg_rating"]?.double
         ratings = row["ratings"]?.int ?? 0
         fromConfigFile = row["origin"]?.string == "config"
+        unsubscribeURL = row["unsubscribe_url"]?.string
         if channel == "feed" {
             address = row["site_url"]?.string ?? row["feed_url"]?.string ?? ""
         } else {
@@ -108,3 +113,19 @@ public func sourceEditArguments(from old: SourceRecord, name: String, section: S
     if included == old.muted { args.append(included ? "--unmute" : "--mute") }
     return args.isEmpty ? [] : ["source", old.id] + args
 }
+
+// ---- Following (docs/phase-3.md A5) ------------------------------------------------------------------
+
+/** What `broadsheet follow --preview --json` and `switch-to-feed --preview --json` answer. */
+public struct FeedPreview: Sendable, Decodable, Equatable {
+    public struct Entry: Sendable, Decodable, Equatable { public var title: String; public var publishedAt: String; public var url: String? }
+    public var feedUrl: String
+    public var title: String
+    public var siteUrl: String?
+    public var entries: [Entry]
+    /// The site address it was found from (switch-to-feed's guess).
+    public var site: String?
+}
+
+public struct FollowResult: Sendable, Decodable, Equatable { public var id: String; public var name: String }
+public struct SwitchResult: Sendable, Decodable, Equatable { public var feedUrl: String; public var unsubscribe: String? }

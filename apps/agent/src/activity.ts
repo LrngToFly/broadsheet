@@ -65,13 +65,15 @@ export const onlyBecauseActive = (r: { ok: boolean; reason?: string }) => !r.ok 
 export function aiMayRun(s: ActivitySample, p: Config["politeness"]): { ok: true } | { ok: false; reason: string } {
   if (s.lowPowerMode) return { ok: false, reason: "Low Power Mode is on" };
   if (s.thermal !== "none") return { ok: false, reason: `thermal warning: ${s.thermal}` };
-  if (s.memoryPressure !== "normal") return { ok: false, reason: `memory pressure is ${s.memoryPressure}` };
+  // Critical memory always stops it; so does not being able to tell.
+  if (s.memoryPressure === "critical" || s.memoryPressure === "unknown") return { ok: false, reason: `memory pressure is ${s.memoryPressure}` };
   if (s.load5m > p.maxLoad5m) return { ok: false, reason: `the Mac is busy (load ${s.load5m.toFixed(1)})` };
-  if (p.lockedCountsAsIdle && s.screenLocked) return { ok: true };
+  const away = (p.lockedCountsAsIdle && s.screenLocked === true) || (s.idleSeconds !== null && s.idleSeconds >= p.idleMinutes * 60);
+  // A memory warning stops it while you're at the Mac. While you're away it doesn't: loading the model (about 8 GB)
+  // is often what causes the warning, so stopping on it stalled the paper with nobody there to be disturbed
+  // (2026-11-27). Critical still stops it, above.
+  if (s.memoryPressure === "warn" && !away) return { ok: false, reason: "memory pressure is warn" };
+  if (away) return { ok: true };
   if (s.idleSeconds === null) return { ok: false, reason: "couldn't read idle time" };
-  const needed = p.idleMinutes * 60;
-  if (s.idleSeconds < needed) {
-    return { ok: false, reason: `you're active (idle ${Math.floor(s.idleSeconds / 60)} of ${p.idleMinutes} min)` };
-  }
-  return { ok: true };
+  return { ok: false, reason: `you're active (idle ${Math.floor(s.idleSeconds / 60)} of ${p.idleMinutes} min)` };
 }

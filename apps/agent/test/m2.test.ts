@@ -158,7 +158,11 @@ describe("when AI work may run", () => {
 
   it("waits while you're active or the Mac is under strain", () => {
     expect(aiMayRun({ ...calm, idleSeconds: 120 }, p)).toEqual({ ok: false, reason: "you're active (idle 2 of 10 min)" });
-    expect(aiMayRun({ ...calm, memoryPressure: "warn" }, p).ok).toBe(false);
+    // A memory warning stops it only while you're at the Mac; critical always does.
+    expect(aiMayRun({ ...calm, memoryPressure: "warn" }, p).ok).toBe(true);
+    expect(aiMayRun({ ...calm, memoryPressure: "warn", idleSeconds: 120 }, p)).toEqual({ ok: false, reason: "memory pressure is warn" });
+    expect(aiMayRun({ ...calm, memoryPressure: "critical" }, p)).toEqual({ ok: false, reason: "memory pressure is critical" });
+    expect(aiMayRun({ ...calm, memoryPressure: "unknown", screenLocked: true }, p).ok).toBe(false);
     expect(aiMayRun({ ...calm, lowPowerMode: true, screenLocked: true }, p).ok).toBe(false);
     expect(aiMayRun({ ...calm, load5m: 9 }, p).ok).toBe(false);
   });

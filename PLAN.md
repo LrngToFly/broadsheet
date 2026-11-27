@@ -364,7 +364,7 @@ Before Stage B, and again **between every item**, the agent checks these signals
 | Screen locked | `ioreg` console-user session → `CGSSessionScreenIsLocked` | Locked counts as idle right away |
 | Thermal warning | `pmset -g therm` | Skip if macOS reports a thermal warning |
 | Low Power Mode | `pmset -g` → `lowpowermode` | Skip |
-| Memory pressure | `sysctl kern.memorystatus_vm_pressure_level` | Skip if pressure is *warn* or higher |
+| Memory pressure | `sysctl kern.memorystatus_vm_pressure_level` | Skip at *critical*. At *warn*, skip only while you're at the Mac: loading the model (about 8 GB of 24) often causes the warning itself, and stopping on it while you were away stalled the paper (changed 2026-11-27) |
 | CPU load | `os.loadavg()` | Skip if the 5-min load is above the threshold (e.g. a backup or export is running) |
 
 Each item takes about a minute at most. **If you touch the mouse or keyboard, the agent finishes that item and stops.** The rest waits for the next idle moment.

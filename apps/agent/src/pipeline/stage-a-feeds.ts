@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { writeFileAtomic } from "../backup.ts";
 import type { Config } from "@broadsheet/shared";
 import { transaction, type Db } from "../db/db.ts";
 import { cleanArticle, stripTracking } from "../content/clean.ts";
@@ -105,8 +106,8 @@ export async function stageAFeeds(opts: {
         const id = feedItemId(e.guid);
         const dir = join(contentDir, id);
         await mkdir(dir, { recursive: true });
-        await writeFile(join(dir, "article.html"), article.html);
-        await writeFile(join(dir, "article.txt"), article.text);
+        await writeFileAtomic(join(dir, "article.html"), article.html);
+        await writeFileAtomic(join(dir, "article.txt"), article.text);
         transaction(db, () => {
           db.prepare(
             `INSERT OR REPLACE INTO items (id, source_id, channel, feed_guid, title, author, published_at, url, content_origin, is_teaser,

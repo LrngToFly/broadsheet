@@ -55,6 +55,12 @@ public struct Snapshot: Sendable, Equatable {
         if s.running, let data = try? Data(contentsOf: loc.progress) {
             s.progress = try? JSONDecoder().decode(Progress.self, from: data)
         }
+        // The agent found the database damaged: say so, with the fix it suggested.
+        if let data = try? Data(contentsOf: loc.problem),
+           let p = try? JSONDecoder().decode(DatabaseProblem.self, from: data) {
+            s.databaseError = "The database is damaged, so the agent has stopped. To fix it, in Terminal: \(p.fix)"
+            return s
+        }
         do {
             let db = try Database(path: loc.database.path)
             if let until = try db.scalar("SELECT value FROM agent_state WHERE key = 'pause:until'").string.flatMap(parseISODate), until > now {
@@ -97,3 +103,5 @@ func lockIsHeld(_ url: URL) -> Bool {
     guard let text = try? String(contentsOf: url, encoding: .utf8), let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return false }
     return kill(pid, 0) == 0 || errno == EPERM
 }
+
+struct DatabaseProblem: Decodable { var problem: String; var fix: String }

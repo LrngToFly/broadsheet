@@ -12,6 +12,10 @@ export function paths(env: NodeJS.ProcessEnv = process.env) {
     tokenCache: join(home, "msal-cache.bin"),
     /** Cleaned article HTML and images while an item is current (PLAN.md §7.2). */
     content: join(home, "content"),
+    /** Daily database backups (the last 7). */
+    backups: join(home, "backups"),
+    /** Written when the database is found damaged; Admin shows it. */
+    problem: join(home, "problem.json"),
     /** broadsheet eval: the saved test set, model runs and comparison pages. */
     eval: join(home, "eval"),
     logs: env.BROADSHEET_LOGS ?? join(homedir(), "Library", "Logs", "Broadsheet"),

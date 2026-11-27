@@ -246,3 +246,14 @@ import Testing
         #expect(PreferenceRecord(id: "j", title: "", source: "", rating: nil, note: nil, movedTo: "Gardening", hiddenReason: "ad", updatedAt: nil).summary == "moved to Gardening · hidden (ad)")
     }
 }
+
+@Suite struct BackupTests {
+    @Test func readsBackupsAndShowsADamagedDatabase() throws {
+        #expect(decodeAnswer([BackupInfo].self, from: #"[{"name":"broadsheet-2026-11-27.db.gz","path":"/x/b.gz","date":"2026-11-27","bytes":90000}]"#)?.first?.date == "2026-11-27")
+        let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data(#"{"at":"2026-11-27T20:00:00Z","problem":"malformed","backup":"2026-11-27","fix":"broadsheet restore 2026-11-27"}"#.utf8).write(to: dir.appending(path: "problem.json"))
+        let s = Snapshot.read(Locations(home: dir, logs: dir, launchAgent: dir.appending(path: "x.plist")))
+        #expect(AgentState(s) == .problem("The database is damaged, so the agent has stopped. To fix it, in Terminal: broadsheet restore 2026-11-27"))
+    }
+}

@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { writeFileAtomic } from "../backup.ts";
 import type { Config } from "@broadsheet/shared";
 import type { Db } from "../db/db.ts";
 import { transaction } from "../db/db.ts";
@@ -77,9 +78,11 @@ export async function stageAEmail(opts: {
   const since = new Date(now.getTime() - config.retention.days * 24 * 3600 * 1000);
   const isSeen = (messageId: string) => Boolean(db.prepare("SELECT 1 FROM seen WHERE key = ?").get(seenKey(messageId)));
 
+  const inbox = await mail.list("inbox", since);
+  await repairStranded(db, mail, inbox, opts.contentDir, isSeen, opts.log);
   const queue: { m: MessageSummary; fromAdd: boolean }[] = [
     ...(await mail.list(folders.add)).map((m) => ({ m, fromAdd: true })),
-    ...(await mail.list("inbox", since)).filter((m) => !isSeen(m.internetMessageId)).map((m) => ({ m, fromAdd: false })),
+    ...inbox.filter((m) => !isSeen(m.internetMessageId)).map((m) => ({ m, fromAdd: false })),
   ];
 
   const outcomes: EmailOutcome[] = [];
@@ -191,8 +194,8 @@ export async function stageAEmail(opts: {
       try {
         if (keep) {
           await mkdir(dir, { recursive: true });
-          await writeFile(join(dir, "article.html"), article.html);
-          await writeFile(join(dir, "article.txt"), article.text);
+          await writeFileAtomic(join(dir, "article.html"), article.html);
+          await writeFileAtomic(join(dir, "article.txt"), article.text);
         }
         if (targetFolder) {
           await mail.move(m.id, targetFolder);
@@ -221,4 +224,51 @@ export async function stageAEmail(opts: {
     }
   }
   return { outcomes, counts };
+}
+
+/**
+ * After a power cut mid-run: an email can be recorded (and so "seen") but still in the Inbox, because the cut came
+ * between saving its record and moving it; or its article text was never written. Each is repaired once, on a later
+ * run: an email whose text is missing is forgotten so it's read again from scratch; one whose text is there is moved
+ * to the folder its record says. Only emails recorded in the last day, and only once each, so an email you drag
+ * back to the Inbox yourself isn't fought over.
+ */
+export async function repairStranded(
+  db: Db,
+  mail: Pick<MailPort, "move">,
+  inbox: MessageSummary[],
+  contentDir: string,
+  isSeen: (internetMessageId: string) => boolean,
+  log?: (line: string) => void,
+  now = new Date(),
+): Promise<number> {
+  const { access } = await import("node:fs/promises");
+  const dayAgo = new Date(now.getTime() - 86_400_000).toISOString();
+  let n = 0;
+  for (const m of inbox) {
+    if (!m.internetMessageId || !isSeen(m.internetMessageId)) continue;
+    const it = db
+      .prepare("SELECT id, mail_folder_id, created_at FROM items WHERE (message_id = ? OR internet_message_id = ?) AND parent_id IS NULL")
+      .get(m.id, m.internetMessageId) as { id: string; mail_folder_id: string | null; created_at: string } | undefined;
+    if (!it || it.created_at < dayAgo || !it.mail_folder_id || it.mail_folder_id === "inbox") continue; // skipped, old, or meant to stay
+    const onceKey = `repaired:${m.internetMessageId}`;
+    if (db.prepare("SELECT 1 FROM agent_state WHERE key = ?").get(onceKey)) continue;
+    db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)").run(onceKey, now.toISOString());
+    const hasText = await access(join(contentDir, it.id, "article.txt")).then(() => true, () => false);
+    if (!hasText) {
+      transaction(db, () => {
+        db.prepare("DELETE FROM items WHERE id = ? OR parent_id = ?").run(it.id, it.id);
+        db.prepare("DELETE FROM seen WHERE key = ?").run(seenKey(m.internetMessageId));
+        db.prepare("DELETE FROM mail_log WHERE message_key = ?").run(m.internetMessageId);
+      });
+      log?.(`Repaired "${m.subject}": its text was missing (a run was cut off), so it's read again.`);
+    } else {
+      await mail.move(m.id, it.mail_folder_id).then(
+        () => log?.(`Repaired "${m.subject}": filed it (a run was cut off before moving it).`),
+        (e: Error) => log?.(`Couldn't file "${m.subject}" after a cut-off run: ${e.message}`),
+      );
+    }
+    n++;
+  }
+  return n;
 }

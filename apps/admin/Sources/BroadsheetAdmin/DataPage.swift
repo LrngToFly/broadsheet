@@ -10,6 +10,8 @@ struct DataPage: View {
     @State private var message: (text: String, ok: Bool)?
     @State private var confirmForgetAll = false
     @State private var pendingImport: (path: String, summary: [String: Int])?
+    @State private var backups: [BackupInfo] = []
+    @State private var restoring: BackupInfo?
 
     var body: some View {
         Form {
@@ -22,6 +24,30 @@ struct DataPage: View {
                     Text(["articles", "newsletters", "rules", "ratings", "mailLog"].compactMap { k in s.counts[k].map { "\($0) \(k == "mailLog" ? "emails in the 90-day log" : k)" } }.joined(separator: " · "))
                         .font(.caption).foregroundStyle(.secondary)
                 } else { ProgressView() }
+            }
+
+            Section {
+                if backups.isEmpty { Text("None yet: one is made at the start of the first run each day.").foregroundStyle(.secondary) }
+                ForEach(backups) { b in
+                    HStack {
+                        Text(b.date).monospacedDigit()
+                        Text(formatBytes(b.bytes)).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Restore…") { restoring = b }
+                    }
+                }
+                HStack {
+                    Button("Back up now") { run(["backup"], done: "Backed up.") }
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([agent.locations.backups]) }
+                }
+            } header: { Text("Backups") } footer: {
+                Text("A copy of the database each day (the last 7 are kept) and once a week in your OneDrive App Folder (the last 4). Articles aren't included: they expire after a few days anyway.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .confirmationDialog("Restore the backup of \(restoring?.date ?? "")?", isPresented: Binding(get: { restoring != nil }, set: { if !$0 { restoring = nil } }), presenting: restoring) { b in
+                Button("Restore it", role: .destructive) { run(["restore", b.date, "--yes"], done: "Restored the backup of \(b.date). The previous database is kept beside it.") }
+            } message: { b in
+                Text("Anything changed since \(b.date) (ratings, rules, settings) is lost. The current database is kept beside it, not deleted. If a run is working, wait a minute and try again.")
             }
 
             Section {
@@ -73,6 +99,7 @@ struct DataPage: View {
 
     private func load() async {
         if let r = await agent.run(["storage", "--json"]), let s = decodeAnswer(StorageInfo.self, from: r.output) { store = s }
+        if let r = await agent.run(["backups", "--json"]), let b = decodeAnswer([BackupInfo].self, from: r.output) { backups = b }
         let loc = agent.locations
         if case .success(let p) = await Task.detached(operation: { Result { try Database(path: loc.database.path).preferences() } }).value { prefs = p }
     }

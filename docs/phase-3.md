@@ -103,3 +103,14 @@ The script compiles the package in release mode with Xcode's tools, wraps the pr
 - **The Data page:** what's stored and how big it is; **Export…** and **Import…** (one JSON file with your newsletters, sections, rules, settings, own words, and everything you rated, moved or hid: no article text; importing updates and adds, never deletes, and shows what it would bring in first); and what the Broadsheet has learned from you, with **Forget** for one item or for everything (your own words and rules stay).
 - **From Terminal:** `broadsheet ai`, `storage`, `export <file>`, `import <file> [--dry-run]`, `forget <item id> | --all`, and `set <key> <value>` for every setting (`broadsheet settings` lists them).
 
+## Crash safety and backups (2026-11-27)
+
+The Mac mini is also a personal computer, so a run can be cut off by a power cut or a restart.
+
+- **Already safe:** the database is SQLite in WAL mode with full sync, and related changes are saved together in transactions, so a cut-off run leaves each change either done or not done. An article is marked read only once Gemma's whole answer is saved, so a cut-off one is read again. A crashed run's lock is taken over by the next run. On OneDrive each file uploads whole, and `edition.json` goes last, so the reader never sees half an edition. Outlook moves happen on Microsoft's side.
+- **Backups:** at the start of the first run each day, a compressed copy of the database goes to `~/Library/Application Support/Broadsheet/backups/` (the last 7 are kept; about 200 KB each today), and once a week a copy goes to `backups/` in the OneDrive App Folder (the last 4). Articles aren't included: they expire after a few days anyway. Admin's **Data** page lists them, with **Back up now** and **Restore…**; from Terminal: `broadsheet backups`, `backup`, `restore <date> --yes`.
+- **Integrity check:** each run starts with SQLite's quick check. If the database is damaged, the run stops before changing anything, the menu bar says so, and it names the newest backup to restore. Restoring keeps the damaged database beside it (`broadsheet.damaged-<time>.db`); it's never deleted.
+- **Article files** are written to a temporary file and then renamed into place, so a cut can't leave half an article.
+- **An email stranded by a cut** (recorded, but the cut came before it was moved out of the Inbox, or before its text was written) is repaired on a later run: filed where its record says, or read again from scratch if its text is missing. Only emails recorded in the last day, and only once each, so an email you drag back to the Inbox yourself is left alone.
+- **Time Machine** isn't set up on this Mac; setting it up with any external drive would protect everything else on it too.
+

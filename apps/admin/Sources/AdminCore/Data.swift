@@ -56,3 +56,12 @@ extension Database {
 }
 
 public func formatBytes(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file) }
+
+/** One of `broadsheet backups --json`. */
+public struct BackupInfo: Sendable, Decodable, Equatable, Identifiable {
+    public var name: String
+    public var path: String
+    public var date: String
+    public var bytes: Int
+    public var id: String { name }
+}

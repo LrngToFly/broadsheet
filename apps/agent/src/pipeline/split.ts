@@ -4,6 +4,7 @@
 // hidden like any article.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { writeFileAtomic } from "../backup.ts";
 import type { SourceFormat } from "@broadsheet/shared";
 import { transaction, type Db } from "../db/db.ts";
 import { looksLikeRoundup, splitPieces } from "../content/split.ts";
@@ -26,8 +27,8 @@ export async function splitItem(db: Db, contentDir: string, itemId: string, form
   for (const [i, p] of pieces.entries()) {
     const dir = join(contentDir, pieceId(itemId, i + 1));
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "article.html"), p.html);
-    await writeFile(join(dir, "article.txt"), p.text);
+    await writeFileAtomic(join(dir, "article.html"), p.html);
+    await writeFileAtomic(join(dir, "article.txt"), p.text);
   }
   const fixed = parent.section_source === "fixed" ? parent.section_id : null;
   transaction(db, () => {

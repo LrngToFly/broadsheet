@@ -411,7 +411,7 @@ Everything the Broadsheet keeps for longer than the 3–4 day reading window:
 - **Your newsletter emails** stay in the newsletter mailbox. The Broadsheet moves them into section folders, and moves only hidden ones to Deleted Items.
 - **Each device's cached copy** of the edition is replaced as the edition updates.
 
-**Backups:** Time Machine covers the SQLite file. Admin also has **Export / Import** of 1–6 as a single JSON file, which is handy for moving to a new Mac.
+**Backups:** the agent backs the database up itself, because the Mac is a personal computer that may lose power mid-run and may have no Time Machine: a compressed copy each day (the last 7 kept, in `backups/`), and once a week a copy in the private OneDrive App Folder (the last 4). Each run starts with an integrity check; a damaged database stops the run and Admin shows which backup to restore (`broadsheet restore <date>`, which keeps the damaged file beside it). Time Machine still helps for everything else on the Mac. Admin also has **Export / Import** of 1–6 as a single JSON file, which is handy for moving to a new Mac.
 
 ### 7.2 SQLite tables
 

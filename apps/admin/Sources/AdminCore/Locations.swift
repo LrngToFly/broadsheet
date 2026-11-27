@@ -24,6 +24,9 @@ public struct Locations: Sendable {
     public var database: URL { home.appending(path: "broadsheet.db") }
     public var runLock: URL { home.appending(path: "run.lock") }
     public var progress: URL { home.appending(path: "progress.json") }
+    /// Written by the agent when it finds the database damaged.
+    public var problem: URL { home.appending(path: "problem.json") }
+    public var backups: URL { home.appending(path: "backups") }
     public var log: URL { logs.appending(path: "agent.log") }
 }
 

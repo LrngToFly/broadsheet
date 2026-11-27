@@ -30,6 +30,7 @@ import { parseExactRule, saveExactRule, testRule } from "./pipeline/rule-editor.
 import { follow, guessSite, previewFeed, switchToFeed } from "./pipeline/following.ts";
 import { approveNew, backfillSkipped, includeSkipped, mailReview } from "./pipeline/mail-review.ts";
 import { exportData, forget, importData, storage } from "./data.ts";
+import { dailyBackup, integrityProblem, listBackups, restoreBackup, weeklyCloudBackup, writeFileAtomic } from "./backup.ts";
 import { setFormat } from "./pipeline/split.ts";
 import { parsePause, pausedUntil, setPause } from "./pause.ts";
 import { describeSettings, isSettingKey, parseSettingValue, SETTINGS, setSetting, withSettings } from "./settings.ts";
@@ -268,6 +269,9 @@ async function run(opts: { stage?: string; dryRun: boolean; force: boolean; limi
     await rotateLogs(p.logs);
     if (!dryRun) keepAwakeWhileRunning();
     console.log(`=== ${new Date().toISOString()} run${stage ? ` --stage ${stage}` : ""}${dryRun ? " --dry-run" : ""}${opts.force ? " --force" : ""}`);
+    // Before anything else: is the database sound? Then today's backup (power cuts and failing disks happen on a
+    // personal computer). A damaged database stops the run, and Admin says which backup to restore.
+    if (!(await healthy())) return;
     if (!opts.force) {
       const db = openDb(p.db);
       const until = pausedUntil(db);
@@ -282,6 +286,36 @@ async function run(opts: { stage?: string; dryRun: boolean; force: boolean; limi
     await rm(PROGRESS, { force: true });
     await release();
   }
+}
+
+/** Check the database, and make today's backup. False (and problem.json for Admin) if the database is damaged. */
+async function healthy(): Promise<boolean> {
+  let problem: string | null;
+  let db: Db | null = null;
+  try {
+    db = openDb(p.db);
+    problem = integrityProblem(db);
+  } catch (e) {
+    problem = (e as Error).message;
+  }
+  if (problem) {
+    db?.close();
+    const latest = (await listBackups(p.backups))[0] ?? null;
+    const fix = latest ? `broadsheet restore ${latest.date}` : "no backup yet: restore an export (Admin, Data)";
+    console.log(`❌ The database is damaged (${problem}). Nothing was changed. To fix it: ${fix}`);
+    await writeFileAtomic(p.problem, JSON.stringify({ at: new Date().toISOString(), problem, backup: latest?.date ?? null, fix }));
+    return false;
+  }
+  await rm(p.problem, { force: true });
+  try {
+    const b = await dailyBackup(db!, p.backups);
+    if (b.made) console.log(`💾 Backed up the database (${b.made.split("/").pop()}${b.removed.length ? `; removed ${b.removed.length} older` : ""}).`);
+  } catch (e) {
+    console.log(`  ❌ couldn't back up the database: ${(e as Error).message}`);
+  } finally {
+    db!.close();
+  }
+  return true;
 }
 
 async function runLocked(opts: { stage?: string; dryRun: boolean; force: boolean; limit?: number }) {
@@ -323,6 +357,14 @@ async function runLocked(opts: { stage?: string; dryRun: boolean; force: boolean
     const pubA = await publish({ db, appFolder, config, contentDir: p.content, status: { lastStage: "a", deferred: null, errors } });
     console.log(`Published ${pubA.items} items (${pubA.uploadedItems} new articles, ${pubA.uploadedImages} images${pubA.pruned ? `, ${pubA.pruned} expired removed` : ""}).`);
     errors.push(...pubA.errors);
+
+    // Once a week, a copy of the backup to the private OneDrive App Folder (a second place, off this Mac).
+    if (!dryRun) {
+      await weeklyCloudBackup(appFolder, p.backups).then(
+        (name) => name && console.log(`☁️  Copied ${name} to OneDrive (backups/).`),
+        (e: Error) => errors.push(`OneDrive backup: ${e.message}`),
+      );
+    }
 
     // Stage B: AI, only when you're away (or --force).
     if (stage !== "a") {
@@ -867,6 +909,49 @@ async function forgetCmd(itemId: string | undefined) {
   });
 }
 
+// ---- Backups ------------------------------------------------------------------------------------------
+
+async function backupsCmd() {
+  const list = await listBackups(p.backups);
+  if (has("json")) console.log(JSON.stringify(list));
+  else {
+    console.log(list.length ? `BACKUPS (the last 7 days are kept) in ${p.backups}` : "No backups yet: one is made at the start of the first run each day.");
+    for (const b of list) console.log(`  ${b.date}  ${(b.bytes / 1024).toFixed(0)} KB`);
+  }
+}
+
+async function backupNow() {
+  const db = openDb(p.db);
+  try {
+    const problem = integrityProblem(db);
+    if (problem) throw new Error(`The database is damaged (${problem}); backing it up would keep the damage. See: broadsheet backups`);
+    const b = await dailyBackup(db, p.backups, new Date(), { force: true });
+    console.log(`Backed up to ${b.made}.`);
+  } finally {
+    db.close();
+  }
+}
+
+/** Put a backup back (by date, e.g. 2026-11-27, or file). The current database is kept beside it, not deleted. */
+async function restoreCmd(which: string | undefined) {
+  const list = await listBackups(p.backups);
+  const b = which ? list.find((x) => x.date === which || x.path === which || x.name === which) : undefined;
+  if (!b) throw new Error(`Usage: broadsheet restore <date> --yes   Backups: ${list.map((x) => x.date).join(", ") || "none"}`);
+  if (!has("yes")) {
+    console.log(`This replaces the database with the backup of ${b.date}: anything since then (ratings, rules, settings) is lost. The current database is kept beside it. Add --yes to go ahead.`);
+    return;
+  }
+  const release = await acquireLock(join(p.home, "run.lock"));
+  if (!release) throw new Error("A run is working right now. Pause the agent (broadsheet pause 1h), wait a minute, and try again.");
+  try {
+    const aside = await restoreBackup(b.path, p.db);
+    await rm(p.problem, { force: true });
+    console.log(`Restored the backup of ${b.date}. The old database is kept as ${aside}.`);
+  } finally {
+    await release();
+  }
+}
+
 /** Pause scheduled runs (Admin's menu bar does the same). */
 async function pause(arg: string | undefined) {
   if (!arg) throw new Error("Usage: broadsheet pause 30m|1h|tomorrow|off");
@@ -1011,6 +1096,15 @@ try {
     case "forget":
       await forgetCmd(args[0]);
       break;
+    case "backups":
+      await backupsCmd();
+      break;
+    case "backup":
+      await backupNow();
+      break;
+    case "restore":
+      await restoreCmd(args[0]?.startsWith("--") ? undefined : args[0]);
+      break;
     case "settings":
       await settingsCmd();
       break;
@@ -1123,6 +1217,9 @@ try {
   mail backfill             add what was left in the Inbox before the mail log started (once)
   ai [--json]               the model in use, what Ollama has installed, the eval set
   storage [--json]          what's stored and how much space it takes
+  backups                   the daily database backups (the last 7 are kept)
+  backup                    back up the database now
+  restore <date> --yes      put a backup back (the current database is kept beside it)
   export <file>             sources, rules, settings, your words and ratings, as one file
   import <file> [--dry-run] bring an export in (updates and adds; deletes nothing)
   forget <item id> | --all  forget one rating (and move/hide record), or all of them

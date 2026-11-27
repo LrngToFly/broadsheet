@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DOMPurify from "dompurify";
 import type { AccountInfo } from "@azure/msal-browser";
-import type { Edition, HiddenCard, HideReason, ItemCard } from "@broadsheet/shared";
+import type { Edition, HiddenCard, HideReason, ItemCard, RulesFile, Suggestion } from "@broadsheet/shared";
 import { NeedsSignIn, signIn, signOut, startAuth } from "./auth.ts";
-import { clearData, imageUrl, loadArticle, loadEdition, loadStatus, localMode, prefetch, type Status } from "./data.ts";
-import { applyOverlay, useReaderActions, type NewAction, type Overlay } from "./actions.ts";
+import { clearData, imageUrl, loadArticle, loadEdition, loadRules, loadStatus, localMode, prefetch, type Status } from "./data.ts";
+import { applyOverlay, useReaderActions, type NewAction, type Overlay, type SettingsOverlay } from "./actions.ts";
 
 // ---- Routing: #/ (Front Page), #/s/<section>, #/i/<item>, #/saved, #/hidden ---------------------------
 
-type Route = { page: "front" } | { page: "saved" } | { page: "hidden" } | { page: "section"; id: string } | { page: "item"; id: string };
+type Route = { page: "front" } | { page: "saved" } | { page: "hidden" } | { page: "rules" } | { page: "section"; id: string } | { page: "item"; id: string };
 
 function parseRoute(hash: string): Route {
   const [, kind, id] = hash.replace(/^#/, "").split("/");
@@ -16,6 +16,7 @@ function parseRoute(hash: string): Route {
   if (kind === "i" && id) return { page: "item", id: decodeURIComponent(id) };
   if (kind === "saved") return { page: "saved" };
   if (kind === "hidden") return { page: "hidden" };
+  if (kind === "rules") return { page: "rules" };
   return { page: "front" };
 }
 
@@ -100,7 +101,11 @@ type Act = (a: NewAction) => void;
 type ArticleProps = { item: ItemCard; sections: { id: string; name: string }[]; act: Act; read: boolean; markRead: (id: string, r: boolean) => void; onHide: (item: ItemCard) => void };
 
 function ActionBar({ item, sections, act, read, markRead, onHide }: ArticleProps) {
-  const rate = (r: -1 | 0 | 1) => act({ type: "rate", itemId: item.id, rating: item.rating === r ? null : r });
+  const [why, setWhy] = useState<string | null>(null); // the "why?" box, when open
+  const rate = (r: -1 | 0 | 1) => {
+    act({ type: "rate", itemId: item.id, rating: item.rating === r ? null : r });
+    setWhy(null);
+  };
   return (
     <div className="actions">
       <div className="rate" role="group" aria-label="Rate this">
@@ -121,6 +126,23 @@ function ActionBar({ item, sections, act, read, markRead, onHide }: ArticleProps
       </select>
       <button className="link" onClick={() => markRead(item.id, !read)}>{read ? "Mark unread" : "Mark read"}</button>
       <button className="link hide-link" onClick={() => onHide(item)}>🚫 Don't show things like this</button>
+      {item.rating !== null &&
+        (why === null ? (
+          <button className="link why-link" onClick={() => setWhy("")}>Say why you rated it {RATING_ICON[String(item.rating)]} (optional)</button>
+        ) : (
+          <form
+            className="why-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (why.trim()) act({ type: "rate", itemId: item.id, rating: item.rating, note: why.trim() });
+              setWhy(null);
+            }}
+          >
+            <input autoFocus maxLength={1000} placeholder="e.g. A distraction story, not about the people in it" value={why} onChange={(e) => setWhy(e.target.value)} />
+            <button type="submit">Save</button>
+            <button type="button" className="link" onClick={() => setWhy(null)}>Cancel</button>
+          </form>
+        ))}
     </div>
   );
 }
@@ -285,13 +307,207 @@ function hiddenWithOverlay(edition: Edition, overlay: Map<string, Overlay>): (Hi
   return [...mine, ...theirs];
 }
 
+// ---- The Rules page (P4) -----------------------------------------------------------------------------
+
+const KIND_LABEL = { check: "Exact match (free, instant)", instruction: "Gemma checks for", include: "Include" } as const;
+
+function OwnWords({ rules, pending, act }: { rules: RulesFile; pending: string | undefined; act: Act }) {
+  const saved = pending ?? rules.ownWords.text;
+  const [text, setText] = useState(saved);
+  useEffect(() => setText(saved), [saved]);
+  return (
+    <section className="rules-block">
+      <h2>In your own words</h2>
+      <p className="fine">
+        What you want from the Broadsheet and what you don't, and why. Gemma reads this with every article, and it comes before anything it learns from your ratings.
+      </p>
+      <textarea
+        rows={5}
+        maxLength={4000}
+        placeholder="e.g. Rank lower the stories about gossip and spectacle, like celebrity feuds or horse-race polling, unless they cover real policy or money."
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="row">
+        <button className="primary" disabled={text.trim() === saved.trim()} onClick={() => act({ type: "own-words", text: text.trim() })}>
+          Save
+        </button>
+        {pending !== undefined && <span className="fine">Saved. Gemma re-scores today's articles the next time the Mac is free.</span>}
+      </div>
+      {rules.learnedProfile && (
+        <details className="learned">
+          <summary>What Gemma has learned from your ratings</summary>
+          <p>{rules.learnedProfile.text}</p>
+          <p className="fine">Rewritten {ago(rules.learnedProfile.builtAt)}. Your own words above win where the two disagree.</p>
+        </details>
+      )}
+    </section>
+  );
+}
+
+function fromText(s: Suggestion): string {
+  if (s.from.kind === "typed") return `You typed: "${s.from.text}"`;
+  const reason = reasonLabel((s.from.reason as HideReason | null) ?? null);
+  return `From an item you hid: "${s.from.title}"${reason ? ` (${reason})` : ""}${s.from.note ? `, "${s.from.note}"` : ""}`;
+}
+
+function SuggestionCard({ s, act, op, edit }: { s: Suggestion; act: Act; op: string | undefined; edit: string | undefined }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  if (op === "approve") return <div className="rule-card done">✓ Approved: {s.wording}. It takes effect on the next update.</div>;
+  if (op === "dismiss") return null;
+  const drafting = s.status === "drafting" || edit !== undefined;
+  return (
+    <div className="rule-card">
+      <p className="from fine">{fromText(s)}</p>
+      {s.status === "failed" ? (
+        <p>Gemma couldn't draft a rule from this{s.error ? `: ${s.error}` : "."}</p>
+      ) : drafting ? (
+        <p className="fine">Gemma is drafting a rule{edit ? ` from your new wording "${edit}"` : ""}. It's done the next time the Mac is free.</p>
+      ) : (
+        <>
+          <p className="wording">{s.wording}</p>
+          <p className="fine">
+            {KIND_LABEL[s.ruleKind ?? "instruction"]}: {s.detail} · {s.source ? `only ${s.source}` : "all newsletters"}
+          </p>
+          <p className="fine">
+            {s.wouldHide.length ? `Would hide ${s.wouldHide.length} of the current articles:` : "Wouldn't hide any of the current articles."}
+          </p>
+          {s.wouldHide.length > 0 && (
+            <ul className="would-hide">
+              {s.wouldHide.map((i) => (
+                <li key={i.id}>
+                  {i.title} <span className="fine">({i.source})</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+      {editing !== null ? (
+        <form
+          className="why-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (editing.trim()) act({ type: "rule-edit", ruleId: s.id, text: editing.trim() });
+            setEditing(null);
+          }}
+        >
+          <input autoFocus maxLength={500} value={editing} onChange={(e) => setEditing(e.target.value)} />
+          <button type="submit">Redraft</button>
+          <button type="button" className="link" onClick={() => setEditing(null)}>Cancel</button>
+        </form>
+      ) : (
+        <div className="row">
+          {s.status === "ready" && !drafting && <button className="primary" onClick={() => act({ type: "rule", ruleId: s.id, op: "approve" })}>Approve</button>}
+          {s.status === "ready" && !drafting && <button onClick={() => setEditing(s.wording ?? "")}>Edit</button>}
+          <button className="link" onClick={() => act({ type: "rule", ruleId: s.id, op: "dismiss" })}>Dismiss</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RuleRow({ r, act, op, edit }: { r: RulesFile["rules"][number]; act: Act; op: string | undefined; edit: string | undefined }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  if (op === "delete") return null;
+  const on = op === "on" ? true : op === "off" ? false : r.status === "active";
+  return (
+    <div className={`rule-card${on ? "" : " off"}`}>
+      <p className="wording">{edit ?? r.wording}</p>
+      <p className="fine">
+        {r.redrafting || edit ? "Gemma is redrafting it from your new wording." : `${KIND_LABEL[r.kind]}: ${r.detail}`} · {r.source ? `only ${r.source}` : "all newsletters"}
+        {r.kind !== "include" && ` · hid ${r.hits30d} in the last 30 days`}
+      </p>
+      {editing !== null ? (
+        <form
+          className="why-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (editing.trim() && editing.trim() !== r.wording) act({ type: "rule-edit", ruleId: r.id, text: editing.trim() });
+            setEditing(null);
+          }}
+        >
+          <input autoFocus maxLength={500} value={editing} onChange={(e) => setEditing(e.target.value)} />
+          <button type="submit">Redraft</button>
+          <button type="button" className="link" onClick={() => setEditing(null)}>Cancel</button>
+        </form>
+      ) : (
+        <div className="row">
+          <button className={on ? "on" : ""} aria-pressed={on} onClick={() => act({ type: "rule", ruleId: r.id, op: on ? "off" : "on" })}>
+            {on ? "On" : "Off"}
+          </button>
+          <button onClick={() => setEditing(r.wording)}>Edit</button>
+          <button className="link" onClick={() => confirm(`Delete the rule "${r.wording}"?`) && act({ type: "rule", ruleId: r.id, op: "delete" })}>
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RulesPage({ rules, settings, act, hiddenCount }: { rules: RulesFile | null; settings: SettingsOverlay; act: Act; hiddenCount: number }) {
+  const [typed, setTyped] = useState("");
+  if (!rules) return <p className="empty">The Rules page appears after the Mac's next update (within about 15 minutes).</p>;
+  const added = settings.added.filter((a) => !rules.suggestions.some((s) => s.from.kind === "typed" && s.from.text === a.text));
+  return (
+    <div className="rules-page">
+      <OwnWords rules={rules} pending={settings.ownWords} act={act} />
+
+      <section className="rules-block">
+        <h2>Suggestions</h2>
+        {rules.suggestions.length === 0 && added.length === 0 && (
+          <p className="fine">None waiting. When you hide something, Gemma may suggest a rule here, and nothing beyond that one item is hidden until you approve it.</p>
+        )}
+        {added.map((a) => (
+          <div key={a.at} className="rule-card">
+            <p className="from fine">You typed: "{a.text}"</p>
+            <p className="fine">Gemma drafts it the next time the Mac is free.</p>
+          </div>
+        ))}
+        {rules.suggestions.map((s) => (
+          <SuggestionCard key={s.id} s={s} act={act} op={settings.ops.get(s.id)} edit={settings.edits.get(s.id)} />
+        ))}
+      </section>
+
+      <section className="rules-block">
+        <h2>Add a rule</h2>
+        <form
+          className="why-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (typed.trim()) act({ type: "rule-add", text: typed.trim() });
+            setTyped("");
+          }}
+        >
+          <input maxLength={500} placeholder="e.g. Never show posts about crypto" value={typed} onChange={(e) => setTyped(e.target.value)} />
+          <button type="submit" disabled={!typed.trim()}>Draft it</button>
+        </form>
+        <p className="fine">Gemma turns it into a rule and shows you what it would hide before you approve it.</p>
+      </section>
+
+      <section className="rules-block">
+        <h2>Your rules</h2>
+        {rules.rules.length === 0 && <p className="fine">No rules yet.</p>}
+        {rules.rules.map((r) => (
+          <RuleRow key={r.id} r={r} act={act} op={settings.ops.get(r.id)} edit={settings.edits.get(r.id)} />
+        ))}
+      </section>
+
+      <p>
+        <a href="#/hidden">See what's hidden{hiddenCount ? ` (${hiddenCount})` : ""} →</a>
+      </p>
+    </div>
+  );
+}
+
 // ---- The app -----------------------------------------------------------------------------------------
 
 type State =
   | { kind: "starting" }
   | { kind: "signed-out"; error?: string }
   | { kind: "loading"; account: AccountInfo }
-  | { kind: "ready"; account: AccountInfo; edition: Edition; status: Status | null; offline: boolean }
+  | { kind: "ready"; account: AccountInfo; edition: Edition; status: Status | null; rules: RulesFile | null; offline: boolean }
   | { kind: "error"; account: AccountInfo; message: string };
 
 export function App() {
@@ -302,8 +518,8 @@ export function App() {
   const load = useCallback(async (account: AccountInfo) => {
     setRefreshing(true);
     try {
-      const [{ edition, offline }, status] = await Promise.all([loadEdition(), loadStatus()]);
-      setState({ kind: "ready", account, edition, status, offline });
+      const [{ edition, offline }, status, rules] = await Promise.all([loadEdition(), loadStatus(), loadRules()]);
+      setState({ kind: "ready", account, edition, status, rules, offline });
       prefetch(edition).catch(() => {});
     } catch (e) {
       if (e instanceof NeedsSignIn) setState({ kind: "signed-out", error: "Please sign in again." });
@@ -334,7 +550,10 @@ export function App() {
   }, [state, load]);
 
   const rawEdition = state.kind === "ready" ? state.edition : null;
-  const { overlay, act, waiting, read, markRead } = useReaderActions(rawEdition);
+  const rules = state.kind === "ready" ? state.rules : null;
+  const { overlay, settings, act, waiting, read, markRead } = useReaderActions(rawEdition, rules);
+  // Suggestions ready for you to look at (the badge), less the ones you've already answered.
+  const waitingSuggestions = (rules?.suggestions ?? []).filter((s) => s.status === "ready" && !settings.ops.has(s.id)).length;
   // The edition with your own not-yet-synced changes on top.
   const edition = useMemo(
     () => (rawEdition ? { ...rawEdition, items: rawEdition.items.filter((i) => overlay.get(i.id)?.hidden !== true).map((i) => applyOverlay(i, overlay.get(i.id))) } : null),
@@ -372,7 +591,7 @@ export function App() {
   }
 
   const item = route.page === "item" && edition ? edition.items.find((i) => i.id === route.id) : undefined;
-  const active = route.page === "section" ? route.id : route.page === "front" || route.page === "saved" || route.page === "hidden" ? route.page : null;
+  const active = route.page === "section" ? route.id : route.page === "item" ? null : route.page;
   const saved = edition ? edition.items.filter((i) => i.saved) : [];
 
   return (
@@ -380,9 +599,14 @@ export function App() {
       <header className="masthead">
         <div className="masthead-row">
           <a href="#/" className="masthead-title">The Broadsheet</a>
-          <button className="icon" aria-label="Refresh" disabled={refreshing} onClick={() => load(state.account)}>
-            {refreshing ? "…" : "↻"}
-          </button>
+          <div className="masthead-buttons">
+            <a href="#/rules" className={`rules-link${active === "rules" ? " on" : ""}`} aria-label={`Rules${waitingSuggestions ? `, ${waitingSuggestions} suggestions waiting` : ""}`}>
+              Rules{waitingSuggestions > 0 && <span className="badge">{waitingSuggestions}</span>}
+            </a>
+            <button className="icon" aria-label="Refresh" disabled={refreshing} onClick={() => load(state.account)}>
+              {refreshing ? "…" : "↻"}
+            </button>
+          </div>
         </div>
         <p className="dateline">{new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>
         {edition && (
@@ -405,6 +629,7 @@ export function App() {
         {edition && route.page === "section" && <ItemList items={edition.items.filter((i) => i.section === route.id)} read={read} />}
         {edition && route.page === "saved" && <ItemList items={saved} read={read} empty="Nothing saved. Saved articles are kept after the others expire." />}
         {edition && route.page === "hidden" && <HiddenList hidden={hiddenList} act={act} />}
+        {edition && route.page === "rules" && <RulesPage rules={rules} settings={settings} act={act} hiddenCount={hiddenList.length} />}
         {edition && route.page === "item" &&
           (item ? <Article item={item} sections={edition.sections} act={act} read={read.has(item.id)} markRead={markRead} onHide={hide} /> : <p className="empty">That article has expired. <a href="#/">Back to the Front Page</a></p>)}
       </main>

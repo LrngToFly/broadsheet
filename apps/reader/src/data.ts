@@ -1,6 +1,6 @@
 // Reading the edition from the OneDrive App Folder, with an on-device cache so the last edition (and
 // every article you've opened) works offline.
-import { Edition } from "@broadsheet/shared";
+import { Edition, RulesFile } from "@broadsheet/shared";
 import { NeedsSignIn, token } from "./auth.ts";
 
 const GRAPH = "https://graph.microsoft.com/v1.0/me/drive/special/approot:/";
@@ -67,6 +67,16 @@ export async function putJson(path: string, value: unknown): Promise<void> {
 export async function loadEdition(): Promise<{ edition: Edition; offline: boolean }> {
   const { res, fromCache } = await fresh("edition.json");
   return { edition: Edition.parse(await res.json()), offline: fromCache };
+}
+
+/** The Rules page (P4). Null until the agent has published one. */
+export async function loadRules(): Promise<RulesFile | null> {
+  try {
+    return RulesFile.parse(await (await fresh("rules.json")).res.json());
+  } catch (e) {
+    if (e instanceof NeedsSignIn) throw e;
+    return null;
+  }
 }
 
 export async function loadStatus(): Promise<Status | null> {

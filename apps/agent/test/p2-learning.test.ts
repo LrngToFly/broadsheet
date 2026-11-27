@@ -141,7 +141,7 @@ describe("Stage B with what it learned", () => {
 describe("the reader profile", () => {
   it("starts from your own words, ignoring the example text", () => {
     const db = setup();
-    expect(currentProfile(db, config)).toEqual({ text: "I garden and save for retirement.", from: "yours" });
+    expect(currentProfile(db, config)).toMatchObject({ text: "I garden and save for retirement.", from: "yours" });
     expect(currentProfile(db, { readerProfile: "Write a few sentences about what you like to read, e.g. …" }).from).toBe("none");
   });
 
@@ -161,7 +161,8 @@ describe("the reader profile", () => {
     let unloaded = 0;
     const fake: LlmProvider = { id: "fake:model", chat: async () => ({ text: "Reader profile: " + text, promptTokens: 1, outputTokens: 1, seconds: 3 }), isLoaded: async () => false, unload: async () => void unloaded++ };
     for (let i = 0; i < 6; i++) await rebuildProfile({ db, config, llm: fake, now: NOW });
-    expect(currentProfile(db, config)).toMatchObject({ from: "learned", version: 6, text: text.trim() });
+    expect(currentProfile(db, config)).toMatchObject({ from: "learned", version: 6, learned: text.trim(), own: "I garden and save for retirement." });
+    expect(currentProfile(db, config).text).toMatch(/^In the reader's own words \(these come first\):\n"I garden and save for retirement."\n\nWhat their ratings show:\nThe reader enjoys/);
     expect(db.prepare("SELECT group_concat(version) v FROM reader_profiles").get()).toEqual({ v: "3,4,5,6" });
     expect(unloaded).toBe(6);
 

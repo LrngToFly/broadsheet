@@ -267,7 +267,7 @@ async function runLocked(opts: { stage?: string; dryRun: boolean; force: boolean
 
     // Stage A: light, always runs. First, what you did in the reader since the last run.
     if (stage !== "b" && !dryRun) {
-      const acts = await applyReaderActions({ db, appFolder, mail });
+      const acts = await applyReaderActions({ db, appFolder, mail, contentDir: p.content });
       if (acts.files) console.log(`📱 ${acts.applied} reader action(s) applied from ${acts.files} file(s)${acts.ignored ? `, ${acts.ignored} for expired items ignored` : ""}.`);
       for (const e of acts.errors) console.log(`  ❌ ${e}`);
       errors.push(...acts.errors);
@@ -372,7 +372,10 @@ async function profile(rebuild: boolean) {
     if (prof.from === "learned") console.log(`Written by ${prof.model} from your ratings, ${new Date(prof.builtAt!).toLocaleDateString()} (version ${prof.version}):`);
     else if (prof.from === "yours") console.log("Your own words, from readerProfile in the config file (Gemma writes one from your ratings once there are enough):");
     else console.log("None yet. Add a few sentences as readerProfile in the config file, or rate articles and Gemma will write one.");
-    if (prof.text) console.log(`\n${prof.text}\n`);
+    if (prof.from === "learned") {
+      console.log(`\n${prof.learned}\n`);
+      console.log(prof.own ? `Your own words, which come first:\n\n${prof.own}\n` : "Your own words: none yet (the Rules page in the reader, In your own words).\n");
+    } else if (prof.text) console.log(`\n${prof.text}\n`);
     const due = profileNotDue(db);
     console.log(due ? `Next rewrite: not yet (${due}).` : "Next rewrite: due on the next run while you're away.");
 

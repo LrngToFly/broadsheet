@@ -13,6 +13,7 @@ import { cacheImages } from "../content/images.ts";
 import type { AppFolder } from "../microsoft/onedrive.ts";
 import { score } from "./ranking.ts";
 import { learn } from "./affinity.ts";
+import { buildRulesFile } from "./rules.ts";
 
 export { freshness } from "./ranking.ts";
 
@@ -114,6 +115,8 @@ export async function publish(opts: {
   const hidden = hiddenCards(db, cutoff);
   const sections = (db.prepare("SELECT id, name FROM sections ORDER BY sort_order").all() as { id: string; name: string }[]).map((s) => ({ ...s }));
   const edition = Edition.parse({ schemaVersion: EDITION_SCHEMA_VERSION, generatedAt: now.toISOString(), sections, items: cards, hidden });
+  // The Rules page: your words, suggestions waiting, and your rules (P4). Before edition.json, which is last.
+  await appFolder.putJson("rules.json", buildRulesFile(db, config, now));
   await appFolder.putJson("edition.json", edition);
   result.items = cards.length;
 
@@ -188,6 +191,11 @@ async function prune(db: Db, appFolder: AppFolderPort, contentDir: string, cutof
   const day = 24 * 3600 * 1000;
   db.prepare("DELETE FROM seen WHERE first_seen_at < ?").run(new Date(now.getTime() - 90 * day).toISOString());
   db.prepare("DELETE FROM runs WHERE started_at < ?").run(new Date(now.getTime() - 14 * day).toISOString());
+  // Rules: "hid N in the last 30 days" needs only 30 days; finished drafting requests a month; and the article
+  // text copied for a draft lasts no longer than the article itself.
+  db.prepare("DELETE FROM rule_hits WHERE at < ?").run(new Date(now.getTime() - 30 * day).toISOString());
+  db.prepare("DELETE FROM rule_requests WHERE status IN ('done', 'dismissed') AND updated_at < ?").run(new Date(now.getTime() - 30 * day).toISOString());
+  db.prepare("UPDATE rule_requests SET excerpt = NULL WHERE excerpt IS NOT NULL AND created_at < ?").run(cutoff);
 }
 
 function contentTypeOf(path: string): string {

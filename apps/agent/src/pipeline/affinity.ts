@@ -49,8 +49,8 @@ function affinityOf(t: Tally | undefined, prior: number): Affinity {
 
 export function learn(db: Db, now = new Date()): Learned {
   const records = db
-    .prepare("SELECT source_id, author, section_id, tags_json, rating, moved_to_section, hidden_reason, updated_at FROM preference_records ORDER BY updated_at")
-    .all() as { source_id: string; author: string | null; section_id: string | null; tags_json: string; rating: number | null; moved_to_section: string | null; hidden_reason: string | null; updated_at: string }[];
+    .prepare("SELECT source_id, author, section_id, tags_json, rating, moved_to_section, hidden_reason, rating_note, updated_at FROM preference_records ORDER BY updated_at")
+    .all() as { source_id: string; author: string | null; section_id: string | null; tags_json: string; rating: number | null; moved_to_section: string | null; hidden_reason: string | null; rating_note: string | null; updated_at: string }[];
   const sourceNames = new Map((db.prepare("SELECT id, coalesce(display_name, id) AS name FROM sources").all() as { id: string; name: string }[]).map((s) => [s.id, s.name]));
 
   const authors = new Map<string, Tally>();
@@ -77,10 +77,13 @@ export function learn(db: Db, now = new Date()): Learned {
     }
     if (r.hidden_reason === "topic") for (const tag of JSON.parse(r.tags_json) as string[]) add(topics, norm(tag), -1, w);
     if (r.rating === null) continue;
-    if (r.author) add(authors, norm(r.author), r.rating, w);
-    add(sources, r.source_id, r.rating, w);
-    for (const tag of JSON.parse(r.tags_json) as string[]) add(topics, norm(tag), r.rating, w);
-    if (r.section_id) add(topics, `§${r.section_id}`, r.rating, w * SECTION_WEIGHT);
+    // You said why: the note explains it better than tags can (it goes into the reader profile), so the
+    // rating counts for half here. A 👎 on "a distraction story" shouldn't turn into "less of this person".
+    const rw = r.rating_note ? w / 2 : w;
+    if (r.author) add(authors, norm(r.author), r.rating, rw);
+    add(sources, r.source_id, r.rating, rw);
+    for (const tag of JSON.parse(r.tags_json) as string[]) add(topics, norm(tag), r.rating, rw);
+    if (r.section_id) add(topics, `§${r.section_id}`, r.rating, rw * SECTION_WEIGHT);
   }
 
   const sectionHint = (sourceId: string) => {

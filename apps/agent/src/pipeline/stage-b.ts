@@ -13,6 +13,7 @@ import { enrich } from "../ai/enrich.ts";
 import type { MailPort } from "./stage-a-email.ts";
 import { learn } from "./affinity.ts";
 import { currentProfile } from "../ai/profile.ts";
+import { draftOne, pendingRequests, rescoreOne } from "../ai/rule-draft.ts";
 
 export const MAX_AI_ATTEMPTS = 3;
 
@@ -34,8 +35,10 @@ export async function stageB(opts: {
   const { db, config, llm, mail } = opts;
   const log = opts.log ?? (() => {});
   const pendingCount = () => (db.prepare("SELECT count(*) n FROM items WHERE ai_status = 'pending' AND hidden_by IS NULL").get() as { n: number }).n;
+  const rescoreCount = () => (db.prepare("SELECT count(*) n FROM items WHERE rescore = 1 AND ai_status = 'done' AND hidden_by IS NULL").get() as { n: number }).n;
+  const requestCount = () => (db.prepare("SELECT count(*) n FROM rule_requests WHERE status = 'pending'").get() as { n: number }).n;
   const result: StageBResult = { deferred: null, outcomes: [], pendingLeft: pendingCount(), unloaded: false };
-  if (result.pendingLeft === 0) return result;
+  if (result.pendingLeft + rescoreCount() + requestCount() === 0) return result;
 
   const mayRun = async () => (opts.force ? ({ ok: true } as const) : aiMayRun(await opts.sampleActivity(), config.politeness));
   const first = await mayRun();
@@ -115,6 +118,8 @@ export async function stageB(opts: {
         sectionId, sectionSource, rule?.id ?? null, llm.id, it.id,
       );
 
+      if (rule) db.prepare("INSERT OR IGNORE INTO rule_hits (rule_id, item_id, at) VALUES (?, ?, ?)").run(rule.id, it.id, new Date().toISOString());
+
       // File the email: from _Sorting into its section folder, or to Deleted Items if a rule hid it.
       // An email the AI filed earlier is re-filed if the AI changes its mind (re-reading after a prompt change).
       let filed = "";
@@ -134,6 +139,55 @@ export async function stageB(opts: {
       }
       const verdict = rule ? `hidden by rule "${rule.id}"` : !isArticle ? "not an article (left out of the paper)" : `${sections.find((s) => s.id === sectionId)?.name}, interest ${d.interest}`;
       result.outcomes.push({ title: it.title, result: `${verdict}${filed}`, seconds: r.seconds });
+    }
+
+    // You changed "In your own words": re-score what's in the paper, from the summaries (a few seconds each).
+    if (!result.deferred) {
+      const rescore = db
+        .prepare(
+          `SELECT i.id, i.title, i.author, i.summary, i.key_points_json, i.tags_json, coalesce(s.display_name, s.id) AS source_name
+           FROM items i JOIN sources s ON s.id = i.source_id WHERE i.rescore = 1 AND i.ai_status = 'done' AND i.hidden_by IS NULL`,
+        )
+        .all() as any[];
+      for (const it of rescore) {
+        const again = await mayRun();
+        if (!again.ok) {
+          result.deferred = again.reason;
+          break;
+        }
+        const started = Date.now();
+        try {
+          const r = await rescoreOne(llm, { title: it.title, source: it.source_name, author: it.author, summary: it.summary ?? "", keyPoints: JSON.parse(it.key_points_json), tags: JSON.parse(it.tags_json) }, readerProfile);
+          db.prepare("UPDATE items SET interest = ?, why_its_here = ?, rescore = 0 WHERE id = ?").run(r.interest, r.why_its_here, it.id);
+          result.outcomes.push({ title: it.title, result: `re-scored for your words: interest ${r.interest}`, seconds: (Date.now() - started) / 1000 });
+        } catch (e) {
+          db.prepare("UPDATE items SET rescore = 0 WHERE id = ?").run(it.id); // keep the old score rather than retry forever
+          result.outcomes.push({ title: it.title, result: "couldn't re-score (kept the old score)", seconds: (Date.now() - started) / 1000, error: (e as Error).message });
+        }
+      }
+    }
+
+    // Rules: draft suggestions from what you hid or typed, and redraft rules you reworded.
+    if (!result.deferred) {
+      const cutoff = new Date(Date.now() - config.retention.days * 86_400_000).toISOString();
+      for (const q of pendingRequests(db)) {
+        const again = await mayRun();
+        if (!again.ok) {
+          result.deferred = again.reason;
+          break;
+        }
+        const started = Date.now();
+        const label = q.kind === "typed" ? `your rule "${q.text}"` : q.kind === "edit" ? `your rewording "${q.text}"` : "an item you hid";
+        log(`Gemma is drafting a rule from ${label}`);
+        try {
+          const line = await draftOne(db, q, { llm, contentDir: opts.contentDir, cutoff, now: new Date().toISOString() });
+          result.outcomes.push({ title: `Rule from ${label}`, result: line, seconds: (Date.now() - started) / 1000 });
+        } catch (e) {
+          db.prepare("UPDATE rule_requests SET attempts = attempts + 1, status = CASE WHEN attempts + 1 >= 3 THEN 'failed' ELSE 'pending' END, error = ?, updated_at = ? WHERE id = ?")
+            .run((e as Error).message, new Date().toISOString(), q.id);
+          result.outcomes.push({ title: `Rule from ${label}`, result: "failed", seconds: (Date.now() - started) / 1000, error: (e as Error).message });
+        }
+      }
     }
   } finally {
     // Give the memory back, unless the model was already loaded for someone else.

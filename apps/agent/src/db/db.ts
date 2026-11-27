@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 // SQLite via Node's built-in node:sqlite (no native add-ons to install or rebuild).
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
@@ -99,15 +100,20 @@ export function syncConfig(db: Db, config: Config, now = new Date().toISOString(
       }
     }
 
-    // Rules from the config file replace the previous config rules.
-    db.prepare("DELETE FROM rules WHERE origin = 'config'").run();
-    const insertRule = db.prepare(
-      `INSERT INTO rules (id, kind, wording, match_mode, conditions_json, instruction, source_id, mail_action,
+    // Rules: the database is the master copy (PLAN.md §4.3), because the reader can change rules too. A rule
+    // from the config file is copied in when it's new or when its text in the file changes; otherwise a change
+    // made in the reader (turned off, reworded, deleted) stands. Rules removed from the file are removed.
+    const upsertRule = db.prepare(
+      `INSERT OR REPLACE INTO rules (id, kind, wording, match_mode, conditions_json, instruction, source_id, mail_action,
          section_id, status, origin, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'config', ?)`,
     );
+    const stateKey = (id: string) => `configrule:${id}`;
     for (const r of config.rules) {
-      insertRule.run(
+      const hash = createHash("sha256").update(JSON.stringify(r)).digest("hex").slice(0, 16);
+      const seen = db.prepare("SELECT value FROM agent_state WHERE key = ?").get(stateKey(r.id)) as { value: string } | undefined;
+      if (seen?.value === hash) continue;
+      upsertRule.run(
         r.id,
         r.kind,
         r.wording,
@@ -120,6 +126,14 @@ export function syncConfig(db: Db, config: Config, now = new Date().toISOString(
         r.status,
         now,
       );
+      db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)").run(stateKey(r.id), hash);
+    }
+    const ruleIds = new Set(config.rules.map((r) => r.id));
+    for (const row of db.prepare("SELECT key FROM agent_state WHERE key LIKE 'configrule:%'").all() as { key: string }[]) {
+      const id = row.key.slice("configrule:".length);
+      if (ruleIds.has(id)) continue;
+      db.prepare("DELETE FROM rules WHERE id = ? AND origin = 'config'").run(id);
+      db.prepare("DELETE FROM agent_state WHERE key = ?").run(row.key);
     }
 
     return { sections: config.sections.length, sources: config.sources.length, rules: config.rules.length, removed };

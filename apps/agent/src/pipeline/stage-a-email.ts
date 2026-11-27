@@ -150,8 +150,8 @@ export async function stageAEmail(opts: {
           const { author } = splitSenderName(email.from.name);
           db.prepare(
             `INSERT OR REPLACE INTO items (id, source_id, channel, message_id, internet_message_id, mail_folder_id, title, author, published_at, url,
-               content_origin, opening, word_count, section_id, section_source, hidden_by, ai_status, created_at)
-             VALUES (?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, 'email', ?, ?, ?, ?, ?, ?, ?)`,
+               content_origin, opening, word_count, section_id, section_source, hidden_by, ai_status, created_at, sender, list_id)
+             VALUES (?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           ).run(
             itemId, source.id, m.id, email.messageId, targetFolder ?? null, email.subject, author, m.receivedDateTime, article.canonicalUrl,
             article.opening, article.wordCount,
@@ -160,7 +160,10 @@ export async function stageAEmail(opts: {
             decision.action === "hide" ? decision.ruleId : null,
             decision.action === "hide" ? "skipped" : "pending",
             nowIso,
+            facts.sender,
+            facts.listId,
           );
+          if (decision.action === "hide") db.prepare("INSERT OR IGNORE INTO rule_hits (rule_id, item_id, at) VALUES (?, ?, ?)").run(decision.ruleId, itemId, nowIso);
         }
         db.prepare("INSERT OR IGNORE INTO seen (key, first_seen_at) VALUES (?, ?)").run(seenKey(email.messageId), nowIso);
       });

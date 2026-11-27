@@ -210,4 +210,40 @@ export const migrations: string[] = [
   -- You said "Show it again": rules and Gemma's "not an article" no longer hide it.
   ALTER TABLE items ADD COLUMN shown_anyway INTEGER NOT NULL DEFAULT 0;
   `,
+
+  /* 7: your own words, notes on ratings, and rules from the reader (Phase 2 P4) */ `
+  ALTER TABLE items ADD COLUMN sender TEXT;      -- sender address and List-Id, so a draft Check rule can be previewed
+  ALTER TABLE items ADD COLUMN list_id TEXT;
+  ALTER TABLE items ADD COLUMN rescore INTEGER NOT NULL DEFAULT 0;  -- your words changed: Gemma re-scores interest
+  ALTER TABLE preference_records ADD COLUMN rating_note TEXT;       -- why you rated it, if you said
+  ALTER TABLE rules ADD COLUMN preview_json TEXT NOT NULL DEFAULT '[]'; -- suggestions: current items it would hide
+
+  -- Gemma's drafting queue: an item you hid, words you typed, or new wording for a rule.
+  CREATE TABLE rule_requests (
+    id              INTEGER PRIMARY KEY,
+    kind            TEXT NOT NULL CHECK (kind IN ('hidden-item', 'typed', 'edit')),
+    item_id         TEXT,
+    source_id       TEXT,
+    -- hidden-item: what Gemma needs, copied in case the item expires first. The excerpt is cleared once drafted.
+    facts_json      TEXT,
+    excerpt         TEXT,
+    reason          TEXT,
+    note            TEXT,
+    text            TEXT,                 -- typed words, or the new wording
+    rule_id         TEXT,                 -- edit: the rule; otherwise the suggestion it produced
+    status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done', 'failed', 'dismissed')),
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    error           TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+  ) STRICT;
+
+  -- Which items each rule hid, for "hid N in the last 30 days". Kept 30 days.
+  CREATE TABLE rule_hits (
+    rule_id         TEXT NOT NULL,
+    item_id         TEXT NOT NULL,
+    at              TEXT NOT NULL,
+    PRIMARY KEY (rule_id, item_id)
+  ) STRICT;
+  `,
 ];

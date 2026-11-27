@@ -262,7 +262,7 @@ The **Front Page** shows the top items across all sections, and each section tab
 
 #### From a hidden item to a rule
 - The next time the Mac is idle, Gemma looks at the hidden item, your reason and your note, and **drafts a rule**. For example: *"Hide Substack posts that are mainly a link to a live video and have little written text."*
-- The draft appears as a **suggestion** on the reader's **Rules** page, with a badge showing how many are waiting. Each suggestion shows **which items from the last 90 days it would have hidden**, so you can see whether it's too broad.
+- The draft appears as a **suggestion** on the reader's **Rules** page, with a badge showing how many are waiting. Each suggestion shows **which of the current items (the last few days) it would hide**, so you can see whether it's too broad. (Articles are kept only for the retention window, so that's the history there is to check against.)
 - You **Approve**, **Edit** (change the wording, and Gemma redrafts it) or **Dismiss** it. Nothing beyond the one item you hid is hidden until you approve.
 - **Writing a rule from scratch:** the Rules page also has an **Add a rule** box. Type something like "Never show posts about crypto", and it goes through the same draft, preview and approve steps.
 

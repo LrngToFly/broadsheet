@@ -151,7 +151,7 @@ describe("publishing the edition", () => {
 
     puts.length = 0;
     await publish({ db, appFolder, config, contentDir, now: NOW });
-    expect(puts).toEqual(["edition.json"]); // articles aren't uploaded twice
+    expect(puts).toEqual(["rules.json", "edition.json"]); // articles aren't uploaded twice
   });
 
   it("scores newest first until Gemma ranks things", () => {

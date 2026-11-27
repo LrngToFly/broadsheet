@@ -2,7 +2,7 @@
 // to the agent as a small file in the OneDrive App Folder (docs/phase-2.md). Offline, it waits and is sent
 // when you're back online. "Read" is remembered on this device only.
 import { useCallback, useEffect, useState } from "react";
-import { ACTIONS_SCHEMA_VERSION, type ActionsFile, type Edition, type HideReason, type ItemCard, type ReaderAction } from "@broadsheet/shared";
+import { ACTIONS_SCHEMA_VERSION, isItemAction, type ActionsFile, type Edition, type HideReason, type ItemCard, type ReaderAction, type RulesFile } from "@broadsheet/shared";
 import { putJson } from "./data.ts";
 
 const PENDING = "bs-actions-pending"; // not yet uploaded
@@ -42,7 +42,7 @@ async function flush(): Promise<boolean> {
     return false; // offline or signed out: try again later
   }
   // Only remove what was sent (more may have been queued meanwhile).
-  const still = load<ReaderAction[]>(PENDING, []).filter((a) => !pending.some((p) => p.at === a.at && p.itemId === a.itemId && p.type === a.type));
+  const still = load<ReaderAction[]>(PENDING, []).filter((a) => !pending.some((p) => p.at === a.at && p.type === a.type));
   save(PENDING, still);
   save(SENT, [...load<ReaderAction[]>(SENT, []), ...pending]);
   return still.length === 0;
@@ -53,14 +53,29 @@ export type NewAction = ReaderAction extends infer A ? (A extends unknown ? Omit
 
 export type Overlay = { rating?: -1 | 0 | 1 | null; saved?: boolean; section?: string; hidden?: boolean; reason?: HideReason | null; note?: string | null };
 
-/** Your actions that the edition doesn't show yet, by item. */
-function overlayFor(edition: Edition | null): Map<string, Overlay> {
+/** Rules-page changes that rules.json doesn't show yet. */
+export type SettingsOverlay = {
+  ownWords?: string;
+  /** Approve, dismiss, on, off or delete, by rule id. */
+  ops: Map<string, string>;
+  /** New wording sent for a rule. */
+  edits: Map<string, string>;
+  /** Rules you typed, waiting to be drafted. */
+  added: { text: string; at: string }[];
+};
+
+/** Your actions that the edition doesn't show yet, by item, and the Rules-page ones that rules.json doesn't. */
+function overlayFor(edition: Edition | null, rules: RulesFile | null): { items: Map<string, Overlay>; settings: SettingsOverlay } {
   const items = new Map((edition?.items ?? []).map((i) => [i.id, i]));
   const hidden = new Map((edition?.hidden ?? []).map((h) => [h.id, h]));
   const generated = edition ? new Date(edition.generatedAt).getTime() : 0;
   let sent = load<ReaderAction[]>(SENT, []);
   // Forget sent actions once the edition reflects them, or once they're old.
+  const rulesAt = rules ? new Date(rules.generatedAt).getTime() : 0;
   sent = sent.filter((a) => {
+    if (Date.now() - new Date(a.at).getTime() > SENT_TTL_MS) return false;
+    // Rules-page actions: shown until a rules.json made after them arrives.
+    if (!isItemAction(a)) return new Date(a.at).getTime() > rulesAt;
     const item = items.get(a.itemId);
     if ((!item && !hidden.has(a.itemId)) || Date.now() - new Date(a.at).getTime() > SENT_TTL_MS) return false;
     if (new Date(a.at).getTime() > generated) return true;
@@ -78,7 +93,15 @@ function overlayFor(edition: Edition | null): Map<string, Overlay> {
   save(SENT, sent);
 
   const map = new Map<string, Overlay>();
+  const settings: SettingsOverlay = { ops: new Map(), edits: new Map(), added: [] };
   for (const a of [...sent, ...load<ReaderAction[]>(PENDING, [])].sort((x, y) => x.at.localeCompare(y.at))) {
+    if (!isItemAction(a)) {
+      if (a.type === "own-words") settings.ownWords = a.text;
+      if (a.type === "rule") settings.ops.set(a.ruleId, a.op);
+      if (a.type === "rule-edit") settings.edits.set(a.ruleId, a.text);
+      if (a.type === "rule-add") settings.added.push({ text: a.text, at: a.at });
+      continue;
+    }
     const o = map.get(a.itemId) ?? {};
     if (a.type === "rate") o.rating = a.rating;
     if (a.type === "save") o.saved = a.saved;
@@ -87,7 +110,7 @@ function overlayFor(edition: Edition | null): Map<string, Overlay> {
     if (a.type === "unhide") Object.assign(o, { hidden: false, reason: null, note: null });
     map.set(a.itemId, o);
   }
-  return map;
+  return { items: map, settings };
 }
 
 export function applyOverlay(item: ItemCard, o: Overlay | undefined): ItemCard {
@@ -101,7 +124,7 @@ export function applyOverlay(item: ItemCard, o: Overlay | undefined): ItemCard {
   };
 }
 
-export function useReaderActions(edition: Edition | null) {
+export function useReaderActions(edition: Edition | null, rules: RulesFile | null = null) {
   const [version, setVersion] = useState(0);
   const [waiting, setWaiting] = useState(() => load<ReaderAction[]>(PENDING, []).length);
   const bump = () => setVersion((v) => v + 1);
@@ -118,7 +141,7 @@ export function useReaderActions(edition: Edition | null) {
   }, [send]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const overlay = useCallback(() => overlayFor(edition), [edition, version]);
+  const overlay = useCallback(() => overlayFor(edition, rules), [edition, rules, version]);
 
   const act = useCallback(
     (a: NewAction) => {
@@ -142,5 +165,6 @@ export function useReaderActions(edition: Edition | null) {
     });
   }, []);
 
-  return { overlay: overlay(), act, waiting, read, markRead };
+  const { items, settings } = overlay();
+  return { overlay: items, settings, act, waiting, read, markRead };
 }

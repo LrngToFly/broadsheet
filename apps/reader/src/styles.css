@@ -120,3 +120,30 @@ footer p { margin: 0.25rem 0; }
 .hidden-row h2 a { text-decoration: none; }
 .hidden-row .why { margin: 0 0 0.6rem; }
 .footer-link { color: var(--muted); }
+
+/* Phase 2 P4: notes on ratings, the Rules page */
+.actions .why-link { flex-basis: 100%; text-align: left; font-size: 0.85rem; }
+.why-form { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; flex-basis: 100%; }
+.why-form input { flex: 1 1 14rem; font: inherit; font-size: 0.95rem; padding: 0.45rem 0.6rem; border: 1px solid var(--rule); border-radius: 8px; background: var(--card); color: var(--ink); }
+.why-form button:not(.link), .rule-card .row button:not(.link):not(.primary) { font-size: 0.9rem; border: 1px solid var(--rule); background: var(--card); color: var(--ink); border-radius: 999px; padding: 0.4rem 0.85rem; }
+.masthead-buttons { display: flex; align-items: center; gap: 0.6rem; }
+.rules-link { text-decoration: none; color: var(--muted); font-size: 0.95rem; position: relative; padding: 0.2rem 0.1rem; }
+.rules-link.on { color: var(--ink); font-weight: 600; }
+.badge { display: inline-block; min-width: 1.2rem; margin-left: 0.3rem; padding: 0 0.35rem; border-radius: 999px; background: #b3261e; color: #fff; font-size: 0.75rem; font-weight: 600; text-align: center; line-height: 1.2rem; }
+.rules-page { padding-bottom: 1rem; }
+.rules-block { padding: 1rem 0; border-bottom: 1px solid var(--rule); }
+.rules-block h2 { font-family: var(--serif); font-size: 1.3rem; margin: 0 0 0.4rem; }
+.rules-block .fine { max-width: none; }
+.rules-block textarea { width: 100%; font: inherit; font-size: 0.95rem; padding: 0.6rem; border: 1px solid var(--rule); border-radius: 8px; background: var(--card); color: var(--ink); resize: vertical; }
+.rules-page .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+.rules-page .primary { background: var(--accent); color: var(--paper); border: none; padding: 0.5rem 1.2rem; border-radius: 10px; }
+.rules-page .primary:disabled { opacity: 0.45; cursor: default; }
+.rule-card { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 0.75rem 0.9rem; margin: 0.6rem 0; }
+.rule-card.off { opacity: 0.6; }
+.rule-card.done { color: var(--muted); font-size: 0.9rem; }
+.rule-card p { margin: 0 0 0.3rem; }
+.rule-card .wording { font-weight: 600; }
+.rule-card .row button.on { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+.would-hide { margin: 0.2rem 0 0.4rem; padding-left: 1.2rem; font-size: 0.9rem; }
+.learned { margin-top: 0.75rem; font-size: 0.92rem; }
+.learned summary { cursor: pointer; color: var(--muted); }

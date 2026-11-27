@@ -26,6 +26,7 @@ export const SETTINGS = {
   "ranking.freshness": { schema: weight, label: "Ranking: freshness" },
   "ranking.learnedTopics": { schema: weight, label: "Ranking: learned topics" },
   "ranking.exploration": { schema: z.number().min(0).max(0.5), label: "Ranking: new-source bonus" },
+  "ranking.coverage": { schema: z.number().min(0).max(0.2), label: "Ranking: widely covered stories" },
 } as const;
 export type SettingKey = keyof typeof SETTINGS;
 

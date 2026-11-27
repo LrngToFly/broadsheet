@@ -317,4 +317,10 @@ export const migrations: string[] = [
   -- Set when you open an article in the reader; it goes with the item when the item expires (no reading history).
   ALTER TABLE items ADD COLUMN read_at TEXT;
   `,
+
+  /* 14: the same story in several newsletters, matched by Gemma (2026-11-27) */ `
+  ALTER TABLE items ADD COLUMN story_id TEXT;      -- items Gemma found telling the same story share one id
+  ALTER TABLE items ADD COLUMN story_checked INTEGER NOT NULL DEFAULT 0; -- compared with the others once
+  CREATE INDEX items_story ON items(story_id);
+  `,
 ];

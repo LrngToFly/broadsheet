@@ -129,7 +129,11 @@ export async function publish(opts: {
   }
 
   cards.sort((a, b) => b.score - a.score || b.publishedAt.localeCompare(a.publishedAt));
-  const shown = sameStoryOnce(cards, new Map(rows.map((r) => [r.id, { links: JSON.parse(r.links_json ?? "[]"), sender: r.sender, piece: Boolean(r.parent_id) }])));
+  const shown = sameStoryOnce(
+    cards,
+    new Map(rows.map((r) => [r.id, { links: JSON.parse(r.links_json ?? "[]"), sender: r.sender, piece: Boolean(r.parent_id), storyId: r.story_id }])),
+    config.ranking.coverage,
+  );
   cards.splice(0, cards.length, ...shown);
   const hidden = hiddenCards(db, cutoff);
   const sections = (db.prepare("SELECT id, name FROM sections ORDER BY sort_order").all() as { id: string; name: string }[]).map((s) => ({ ...s }));
@@ -173,36 +177,74 @@ const bare = (u: string) => {
 const GENERIC_HOSTS = /(^|\.)(twitter\.com|x\.com|facebook\.com|instagram\.com|linkedin\.com|youtube\.com|bsky\.app|threads\.net|apple\.com|spotify\.com)$/;
 
 /**
- * Pieces from different newsletters about one story: the same headline (most of its words), or a link to the same
- * page (not the newsletter's own site). Cards are best first, so the one kept is the best-scored; the others are
- * dropped and named in its "also in".
+ * One story told by several newsletters. Cards are grouped when Gemma matched them (`storyId`, see ai/stories.ts), or
+ * when their headlines share most of their words, or they link to the same page (not either newsletter's own site).
+ * In each group:
+ *   - every card is told the other newsletters ("also in …"),
+ *   - every card gets a coverage bonus: `coverage` per extra newsletter, counting at most MAX_COVERAGE of them, so a
+ *     widely covered story ranks higher without swamping your interests,
+ *   - briefs are shown once: the best-scored one.
+ * Articles are never dropped (two writers on one event usually give different angles), and a brief and an article on
+ * the same story both stay.
  */
-export function sameStoryOnce(cards: ItemCard[], extra: Map<string, { links: string[]; sender: string | null; piece: boolean }>): ItemCard[] {
-  const kept: { card: ItemCard; words: Set<string>; links: Set<string> }[] = [];
-  const out: ItemCard[] = [];
-  for (const card of cards) {
-    const x = extra.get(card.id);
-    if (!x?.piece) {
-      out.push(card);
-      continue;
-    }
-    const own = x.sender?.split("@")[1]?.split(".").slice(-2).join(".") ?? "";
-    const links = new Set(x.links.filter((l) => { const h = hostOf(l); return h && !GENERIC_HOSTS.test(h) && !(own && (h === own || h.endsWith(`.${own}`))); }).map(bare));
-    const words = titleWords(card.title);
-    const same = kept.find((k) => {
-      if (k.card.source === card.source) return false;
-      const shared = [...words].filter((w) => k.words.has(w)).length;
-      const jaccard = shared / (words.size + k.words.size - shared || 1);
-      return (shared >= 2 && jaccard >= 0.5) || [...links].some((l) => k.links.has(l));
-    });
-    if (same) {
-      if (!same.card.alsoIn.includes(card.source)) same.card.alsoIn.push(card.source);
-      continue;
-    }
-    kept.push({ card, words, links });
-    out.push(card);
+export const MAX_COVERAGE = 4;
+export function sameStoryOnce(
+  cards: ItemCard[],
+  extra: Map<string, { links: string[]; sender: string | null; piece: boolean; storyId?: string | null }>,
+  coverage = 0,
+): ItemCard[] {
+  // Union-find over the cards.
+  const parent = new Map(cards.map((c) => [c.id, c.id]));
+  const find = (id: string): string => {
+    let r = id;
+    while (parent.get(r) !== r) r = parent.get(r)!;
+    parent.set(id, r);
+    return r;
+  };
+  const union = (a: string, b: string) => {
+    const [ra, rb] = [find(a), find(b)];
+    if (ra !== rb) parent.set(rb, ra);
+  };
+  // Gemma's matches.
+  const byStory = new Map<string, string>();
+  for (const c of cards) {
+    const sid = extra.get(c.id)?.storyId;
+    if (!sid) continue;
+    if (byStory.has(sid)) union(byStory.get(sid)!, c.id);
+    else byStory.set(sid, c.id);
   }
-  return out;
+  // Same headline or same link, between different newsletters.
+  const facts = cards.map((card) => {
+    const x = extra.get(card.id);
+    const own = x?.sender?.split("@")[1]?.split(".").slice(-2).join(".") ?? "";
+    const links = new Set((x?.links ?? []).filter((l) => { const h = hostOf(l); return h && !GENERIC_HOSTS.test(h) && !(own && (h === own || h.endsWith(`.${own}`))); }).map(bare));
+    return { card, words: titleWords(card.title), links };
+  });
+  for (let i = 0; i < facts.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const [a, b] = [facts[i]!, facts[j]!];
+      if (a.card.source === b.card.source) continue;
+      const shared = [...a.words].filter((w) => b.words.has(w)).length;
+      const jaccard = shared / (a.words.size + b.words.size - shared || 1);
+      if ((shared >= 2 && jaccard >= 0.5) || [...a.links].some((l) => b.links.has(l))) union(a.card.id, b.card.id);
+    }
+  }
+
+  const groups = new Map<string, ItemCard[]>();
+  for (const c of cards) groups.set(find(c.id), [...(groups.get(find(c.id)) ?? []), c]);
+  const dropped = new Set<string>();
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    const sources = [...new Set(members.map((m) => m.source))];
+    for (const m of members) {
+      m.alsoIn = sources.filter((s) => s !== m.source);
+      m.score = Math.round((m.score + coverage * Math.min(sources.length - 1, MAX_COVERAGE)) * 1e4) / 1e4;
+    }
+    // Briefs of one story are shown once (the best-scored). A brief and an article on the same story both stay.
+    const briefs = members.filter((m) => m.kind === "brief").sort((a, b) => b.score - a.score);
+    for (const b of briefs.slice(1)) dropped.add(b.id);
+  }
+  return cards.filter((c) => !dropped.has(c.id)).sort((a, b) => b.score - a.score || b.publishedAt.localeCompare(a.publishedAt));
 }
 
 /** What was left out of the paper in the same window, and why, for the reader's Hidden list (and Admin's). */

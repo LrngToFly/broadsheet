@@ -97,6 +97,8 @@ export const Config = z
         learnedTopics: z.number().min(0).max(1).default(0.5),
         /** Bonus for sources you've rated fewer than 3 items from, so new ones get a fair chance. */
         exploration: z.number().min(0).max(0.5).default(0.05),
+        /** Bonus per extra newsletter carrying the same story (at most 4 counted), so widely covered news ranks higher. */
+        coverage: z.number().min(0).max(0.2).default(0.03),
       })
       .prefault({}),
     /** A few sentences about what you like to read, in your own words. Gemma also writes a profile from your

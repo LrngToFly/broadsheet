@@ -78,6 +78,7 @@ function Card({ item, lead = false, read = false }: { item: ItemCard; lead?: boo
         <h2>{item.title}</h2>
         <p className="meta">
           {byline(item)} · {ago(item.publishedAt)} · {item.readMinutes} min read
+          {item.alsoIn.length > 0 && ` · also in ${item.alsoIn.join(", ")}`}
           {item.rating !== null && <span className="mark"> · {RATING_ICON[String(item.rating)]}</span>}
           {item.saved && <span className="mark"> · ★</span>}
         </p>

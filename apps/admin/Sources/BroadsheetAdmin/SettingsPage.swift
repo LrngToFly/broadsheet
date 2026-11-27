@@ -78,6 +78,7 @@ struct SettingsPage: View {
                 weight("ranking.author", "Authors you rate well")
                 weight("ranking.freshness", "Freshness")
                 weight("ranking.learnedTopics", "How far learned topics can outweigh Gemma")
+                weight("ranking.coverage", "Widely covered stories (bonus per extra newsletter, up to 4)", range: 0...0.2, step: 0.01)
             } header: { Text("The paper") } footer: {
                 Text("The ranking weighs interest, author and freshness against each other; only their proportions matter.").font(.caption).foregroundStyle(.secondary)
             }
@@ -107,12 +108,12 @@ struct SettingsPage: View {
         }
     }
 
-    @ViewBuilder private func weight(_ key: String, _ label: String) -> some View {
+    @ViewBuilder private func weight(_ key: String, _ label: String, range: ClosedRange<Double> = 0...1, step: Double = 0.05) -> some View {
         VStack(alignment: .leading) {
             HStack { Text(label); Spacer(); Text(number(key).formatted(.number.precision(.fractionLength(2)))).monospacedDigit().foregroundStyle(.secondary) }
             Slider(value: Binding(get: { number(key) }, set: { v in
-                if let i = rows.firstIndex(where: { $0.key == key }) { rows[i].value = .number((v * 20).rounded() / 20) }
-            }), in: 0...1, step: 0.05) { editing in
+                if let i = rows.firstIndex(where: { $0.key == key }) { rows[i].value = .number((v / step).rounded() * step) }
+            }), in: range, step: step) { editing in
                 if !editing { set(key, String(number(key))) }
             }
             fileNote(key)

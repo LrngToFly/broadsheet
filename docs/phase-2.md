@@ -90,3 +90,10 @@ Code: [eval.ts](../apps/agent/src/ai/eval.ts).
 - **Briefs:** News in Brief and each section's In brief list show the **4** best-scored briefs, with **All N briefs →** for the rest.
 - **The Back bar:** on an article, the masthead scrolls away and a slim **‹ Back** bar stays pinned at the top (it replaced the links at the top and bottom).
 
+## The same story in several newsletters (2026-11-27)
+
+- **Gemma compares each new item once** with likely candidates: items from other newsletters within two days that share at least two words of headline or tags (at most 8). It's asked whether they report the same specific story or event (the same announcement, ruling, report, deal or incident), not just the same topic. Matches share a story id. It runs while you're away, after summaries; about 5 seconds an item. On a test, it matched "Fed holds interest rates steady" with "Powell keeps borrowing costs unchanged" and rightly left out "What a Fed pause means for your mortgage".
+- **Matching headlines or links** still count as the same story too (no AI needed).
+- **In the paper:** every item in a story says "also in …" (articles and briefs). Each gets a bonus in the ranking per extra newsletter carrying it (0.03 each, at most 4 counted; **Settings → The paper → Widely covered stories** in Admin). Briefs of one story are shown once, the best-scored; a brief and an article on the same story both stay, and articles are never merged.
+- **Each newsletter is still read on its own:** Gemma's summary and interest score for an item don't depend on what other newsletters said.
+

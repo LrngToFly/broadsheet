@@ -14,6 +14,7 @@ import type { MailPort } from "./stage-a-email.ts";
 import { learn } from "./affinity.ts";
 import { scoringProfile } from "../ai/profile.ts";
 import { draftOne, pendingRequests, rescoreOne } from "../ai/rule-draft.ts";
+import { checkStory } from "../ai/stories.ts";
 import { formatOf, splitIfDue } from "./split.ts";
 import { FALLBACK_SECTION_ID } from "@broadsheet/shared";
 
@@ -41,8 +42,11 @@ export async function stageB(opts: {
   const pendingCount = () => (db.prepare("SELECT count(*) n FROM items WHERE ai_status = 'pending' AND hidden_by IS NULL").get() as { n: number }).n;
   const rescoreCount = () => (db.prepare("SELECT count(*) n FROM items WHERE rescore = 1 AND ai_status = 'done' AND hidden_by IS NULL").get() as { n: number }).n;
   const requestCount = () => (db.prepare("SELECT count(*) n FROM rule_requests WHERE status = 'pending'").get() as { n: number }).n;
+  const storyWhere = `story_checked = 0 AND ai_status = 'done' AND hidden_by IS NULL AND coalesce(is_article, 1) = 1 AND kind != 'newsletter' AND published_at >= ?`;
+  const storyCutoff = new Date(Date.now() - config.retention.days * 86_400_000).toISOString();
+  const storyCount = () => (db.prepare(`SELECT count(*) n FROM items WHERE ${storyWhere}`).get(storyCutoff) as { n: number }).n;
   const result: StageBResult = { deferred: null, outcomes: [], pendingLeft: pendingCount(), unloaded: false };
-  if (result.pendingLeft + rescoreCount() + requestCount() === 0) return result;
+  if (result.pendingLeft + rescoreCount() + requestCount() + storyCount() === 0) return result;
 
   const mayRun = async () => (opts.force ? ({ ok: true } as const) : aiMayRun(await opts.sampleActivity(), config.politeness));
   const first = await mayRun();
@@ -221,6 +225,29 @@ export async function stageB(opts: {
           result.outcomes.push({ title: it.title, result: "couldn't re-score (kept the old score)", seconds: (Date.now() - started) / 1000, error: (e as Error).message });
         }
       }
+    }
+
+    // The same story in other newsletters: each new item is compared once with likely candidates (ai/stories.ts).
+    if (!result.deferred) {
+      const toCheck = db.prepare(`SELECT id, title FROM items WHERE ${storyWhere} ORDER BY published_at`).all(storyCutoff) as { id: string; title: string }[];
+      let compared = 0;
+      for (const it of toCheck) {
+        const again = await mayRun();
+        if (!again.ok) {
+          result.deferred = again.reason;
+          break;
+        }
+        const started = Date.now();
+        try {
+          const matched = await checkStory(db, llm, it.id);
+          compared++;
+          if (matched.length) result.outcomes.push({ title: it.title, result: `same story as ${matched.join("; ")}`, seconds: (Date.now() - started) / 1000 });
+        } catch (e) {
+          db.prepare("UPDATE items SET story_checked = 1 WHERE id = ?").run(it.id); // don't retry forever
+          result.outcomes.push({ title: it.title, result: "couldn't compare with other newsletters", seconds: (Date.now() - started) / 1000, error: (e as Error).message });
+        }
+      }
+      if (compared) log(`Compared ${compared} item(s) with other newsletters for the same story`);
     }
 
     // Rules: draft suggestions from what you hid or typed, and redraft rules you reworded.

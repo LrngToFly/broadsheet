@@ -99,3 +99,4 @@ footer p { margin: 0.25rem 0; }
 .actions .rate { display: flex; gap: 0.25rem; }
 .actions .rate button { font-size: 1.15rem; padding: 0.25rem 0.6rem; }
 .actions .link { border: none; background: none; padding: 0.35rem 0.25rem; color: var(--muted); text-decoration: underline; }
+.back-end { display: inline-block; margin-top: 1.5rem; padding: 0.5rem 1rem 0.5rem 0; font-size: 1.05rem; }

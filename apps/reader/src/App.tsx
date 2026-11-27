@@ -152,9 +152,7 @@ function Article({ item, sections, act, read, markRead }: { item: ItemCard; sect
 
   return (
     <article className="article">
-      <a className="back" href="#/" onClick={(e) => (history.length > 1 ? (e.preventDefault(), history.back()) : undefined)}>
-        ‹ Back
-      </a>
+      <BackLink />
       <h1>{item.title}</h1>
       <p className="meta">
         {byline(item)} · {new Date(item.publishedAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · {item.readMinutes} min read
@@ -184,7 +182,17 @@ function Article({ item, sections, act, read, markRead }: { item: ItemCard; sect
           </a>
         </p>
       )}
+      <BackLink end />
     </article>
+  );
+}
+
+/** Back to where you came from (keeps your place in the list), or to the front page. */
+function BackLink({ end = false }: { end?: boolean }) {
+  return (
+    <a className={end ? "back back-end" : "back"} href="#/" onClick={(e) => (history.length > 1 ? (e.preventDefault(), history.back()) : undefined)}>
+      ‹ Back
+    </a>
   );
 }
 

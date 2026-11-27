@@ -240,6 +240,8 @@ defaults: w_c = 0.45, w_a = 0.35, w_f = 0.20 (tunable in Admin)
 - **Freshness:** decays to zero at the retention cutoff.
 - **Exploration:** a small boost for unrated sources, so the Broadsheet doesn't narrow itself to only what it already knows you like.
 - **Section hints:** when you move a source's items to the same section twice in a row, its new items go there too.
+- **Your own words.** Ratings say *what* you liked, never *why*. A 👎 on a story you see as a political distraction would otherwise teach "less of this person" when you meant "less of this kind of story". So the reader profile starts from a few sentences you write yourself, such as *"Rank lower the stories about gossip and spectacle, like celebrity feuds or horse-race polling, unless they cover real policy or money."* Gemma reads them for every item, and they win over anything learned from ratings. You edit them in the reader (**In your own words**, on the Rules page) and in Admin. After a change, Gemma re-scores the current items while you're away.
+- **An optional "why" on 👍 👌 👎.** Like the note on hiding: skip it on the phone, add a sentence when you have time. The note is kept in the preference record and goes into the weekly profile rewrite, so Gemma learns the reason. A rating with a note counts at half weight in the tag and author statistics, since the note explains it better than the tags can.
 - The exact formulas, smoothing and thresholds are in [docs/phase-2.md](docs/phase-2.md#how-the-ranking-learns-p2).
 
 The **Front Page** shows the top items across all sections, and each section tab is ranked separately.
@@ -288,6 +290,23 @@ Rules can be viewed and edited in **both the reader and the Admin console**:
 - **The reader never changes rules directly.** It writes small request files (hide, approve, edit, dismiss, add), the same way it sends ratings. The agent applies them on its next Stage A run, within about 15 minutes, and drafts with Gemma once the Mac is idle.
 - **The Admin console** edits the database directly, and also has the full condition editor for Checks.
 - If the same rule is edited in two places, the later change wins, and the reader shows a note if its edit was replaced.
+
+### 4.4 Roundup newsletters
+
+Some newsletters carry many stories in one email. Each source has a **format**:
+
+| Format | Example | What the Broadsheet does |
+|---|---|---|
+| **Normal** (default) | A single essay or post | One article, as today |
+| **Roundup** | A daily news roundup: about a dozen short stories, each a heading and ~120 words | Each story becomes a **brief**: a headline, one or two sentences, its section and its own link |
+| **Multi-section** | A newsletter with a few substantial pieces on different subjects | Each piece becomes its **own article**, with its own summary, in its own section |
+
+- **You choose the format** per newsletter, in Admin (in the config file until then). Telling a roundup apart from a long essay isn't reliable enough to do silently with a 12B model, so Gemma only **suggests** "this looks like a roundup" when it sees many unrelated pieces, and you confirm.
+- **Splitting uses the email's structure first, without AI:** headings, dividers, or paragraphs that start with a bold lead-in. A typical roundup has a heading over each story. Where a newsletter's layout defeats that, a per-source instruction rule says how it's laid out ("each story starts with a bold headline"). Gemma then labels and summarizes each piece, which is faster and more reliable than asking it to take a whole newsletter apart.
+- **Where briefs appear:** **Current Events** briefs form a **News in Brief** column on the Front Page. Briefs for other sections (Technology, Financial & Retirement, Gardening, …) appear as an **In brief** list at the top of that section's page.
+- **The same story in several roundups** is shown once, with "also in …".
+- **Each brief or piece** can be rated, moved, saved or hidden like an article, and links to the story's own web page and to the full newsletter.
+- **The email** is filed in the section where most of its pieces land.
 
 ---
 
@@ -434,9 +453,9 @@ Ratings are written as one small file per event, so two devices rating at the sa
 ## 8. The apps in more detail
 
 ### 8.1 Reader PWA
-- **Views:** Front Page, section tabs, item cards (title, source, author, age, read time, summary or "summary pending", "why it's here"), and a full-content reader with graphs and photos.
-- **Item controls:** 👍 👌 👎, **Don't show things like this** (with optional reasons and a note), **Move to section…** (the email follows), **Save** (exempt from expiry), Mark read, Open original.
-- **Rules page** ([§4.3](#43-hiding-things-and-rules-in-plain-english)): suggestions waiting for approval (with a badge count and a preview of what each would hide), your active rules (edit, turn off, delete), **Add a rule** in plain English, and the **Hidden** list with **Show it again**.
+- **Views:** Front Page (with **News in Brief**, [§4.4](#44-roundup-newsletters)), section tabs (each with an **In brief** list), item cards (title, source, author, age, read time, summary or "summary pending", "why it's here"), and a full-content reader with graphs and photos.
+- **Item controls:** 👍 👌 👎 (with an optional "why" note), **Don't show things like this** (with optional reasons and a note), **Move to section…** (the email follows), **Save** (exempt from expiry), Mark read, Open original.
+- **Rules page** ([§4.3](#43-hiding-things-and-rules-in-plain-english)): **In your own words** (the start of your reader profile, [§4.2](#42-ranking)), suggestions waiting for approval (with a badge count and a preview of what each would hide), your active rules (edit, turn off, delete), **Add a rule** in plain English, and the **Hidden** list with **Show it again**.
 - **Offline:** the last edition is cached, and actions taken offline are queued and sent later.
 - **Display:** follows the system dark mode; adjustable text size; layouts for iPhone, iPad and desktop.
 - **Auth:** Microsoft sign-in (redirect flow) with the `Files.ReadWrite.AppFolder` scope only. The PWA can't see your mail.
@@ -512,7 +531,7 @@ Logs are written as structured JSON to `~/Library/Logs/Broadsheet/`.
 |---|---|---|
 | **0. Spikes** | (a) Register the Entra app. (b) Device-code sign-in to the **newsletter account**; read its mail, **create `The Broadsheet/…` folders and move a message** through Graph. (c) Microsoft sign-in redirect inside an **iOS home-screen PWA**, reading and writing the OneDrive App Folder. (d) **Gemma test:** summarize 20 real newsletters from the new account with Gemma 4 12B; measure quality, speed per item, memory use, and how reliable the structured output is. (e) **Activity sensing:** confirm the macOS commands for idle time, lock state, Low Power Mode and memory pressure report correctly. | Each spike works, or we choose a fallback |
 | **1. Prototype (Gemma)** | Monorepo, schema. Agent Stages A+B with Gemma via Ollama and **idle gating**. **Both channels:** the dedicated mailbox (include everything, skip transactional mail, exclude rules, the `_Add` folder) and direct feeds by URL. Retention pruning. Section folders in Outlook. PWA: sign-in, Front Page, sections, reader. Sources, rules (Check and plain-English Instruction rules) and sections set in a config file for now. launchd at background priority. | Today's newsletters appear summarized on your phone and filed in Outlook, without you noticing the Mac working |
-| **2. Personalization** | Ratings and section moves round-trip, tag affinity, ranking, reader profile, retention, `status.json`, `broadsheet eval`. **Don't show things like this**, Gemma-drafted rule suggestions, and the reader's **Rules** page and **Hidden** list ([§4.3](#43-hiding-things-and-rules-in-plain-english)) | The order changes based on your ratings |
+| **2. Personalization** | Ratings and section moves round-trip, tag affinity, ranking, reader profile, retention, `status.json`, `broadsheet eval`. **Don't show things like this**, Gemma-drafted rule suggestions, and the reader's **Rules** page and **Hidden** list ([§4.3](#43-hiding-things-and-rules-in-plain-english)). **In your own words** and notes on ratings ([§4.2](#42-ranking)). **Roundup** and multi-section newsletters split into briefs and articles ([§4.4](#44-roundup-newsletters)) | The order changes based on your ratings |
 | **3. Admin & sources** | SwiftUI Admin: sections and folders, sources, Follow by URL with preview, the full rule editor with testing, mailbox mode, New/Pending sources, skipped mail, data export and forget, AI, politeness, menu bar. Also: newsletter-like detection from content, best-version selection (email, feed or web page), staleness, Switch to feed, unsubscribe helper. | You manage everything without touching config files |
 | **4. Podcasts** | Subscription import, episode ranking, Listen section | Recommended episodes appear |
 | **5. Ready to share** | Install script, `doctor`, fork-and-deploy guide, backups | Someone else can set up their own copy from the docs alone |
@@ -595,6 +614,8 @@ The full step-by-step guide, `docs/DEPLOY.md`, ships with the code.
 10. ~~Local email archive~~: **none (decided).** Emails stay in Outlook; the Broadsheet keeps only sources, settings and preferences ([§7.1](#71-what-is-kept-long-term-and-where)).
 11. **First-install scan:** on first install, process the newsletter account's existing Inbox (the last *N* days), creating sources and filing the emails into section folders? Summaries would only be made for the most recent few days.
 12. ~~Hiding and rules~~: **decided** ([§4.3](#43-hiding-things-and-rules-in-plain-english)). Hide is separate from 👎; quick reasons plus an optional note; Gemma drafts a rule and you approve it; rules are editable in both the reader and Admin; hidden email goes to Deleted Items; a badge on the Rules page for waiting suggestions; new rules can also be typed from scratch.
+13. ~~Explaining your ratings~~: **decided (2026-11-27).** An **In your own words** box in the reader starts your profile, and 👍 👌 👎 take an optional "why" note ([§4.2](#42-ranking)).
+14. ~~Roundup newsletters~~: **decided (2026-11-27).** You set each newsletter's format (Gemma may suggest it). Current Events briefs go in **News in Brief** on the Front Page; other sections' briefs go at the top of their own page ([§4.4](#44-roundup-newsletters)). A daily news roundup is the first.
 
 ## 14. Extra suggestions
 

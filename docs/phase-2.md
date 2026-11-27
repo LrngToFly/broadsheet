@@ -7,10 +7,11 @@ Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): the order changes bas
 | P1 | **Ratings round-trip:** 👍 👌 👎, Save, Move to section (the email follows) and Mark read in the reader; works offline and syncs later. The agent collects them from OneDrive, applies them, and keeps a long-term *preference record* per rated item (no article text, PLAN.md §7.1). | rate and file things on your phone and see it everywhere | ✅ |
 | P2 | **Learning and ranking:** author and tag affinity from your ratings, an exploration bonus for unrated sources, section hints from your moves, and a reader profile that Gemma rebuilds weekly from your ratings | see the order change as you rate | built |
 | P3 | **Hiding:** "Don't show things like this" with quick reasons and an optional note, the Hidden list with **Show it again** (the email comes back from Deleted Items) | clear out what you don't want | built |
-| P4 | **Rules in plain English:** the Rules page (view, edit, turn off, delete, add), Gemma-drafted suggestions from what you hide, with a preview of what each would catch, and a badge when suggestions are waiting | teach the Broadsheet in your own words | |
-| P5 | **`broadsheet eval`:** compare models side by side on your own newsletters | judge a newer model before switching | |
+| P4 | **Your words, rules in plain English:** the Rules page with **In your own words** (the start of your reader profile; Gemma re-scores current items after a change), an optional "why" note on 👍 👌 👎 that feeds the weekly profile, and rules (view, edit, turn off, delete, add), with Gemma-drafted suggestions from what you hide, a preview of what each would catch, and a badge when suggestions are waiting | teach the Broadsheet in your own words, including *why* you rated something | |
+| P5 | **Roundups** ([PLAN.md §4.4](../PLAN.md#44-roundup-newsletters)): a per-newsletter format (normal, roundup, multi-section). Roundups split into briefs: Current Events briefs in **News in Brief** on the Front Page, other sections' briefs at the top of their own page; the same story from several roundups shown once. Multi-section newsletters split into separate articles. First roundup: a daily news roundup | read many-story newsletters story by story | |
+| P6 | **`broadsheet eval`:** compare models side by side on your own newsletters | judge a newer model before switching | |
 
-Design: [PLAN.md §4.2](../PLAN.md#42-ranking) (ranking), [§4.3](../PLAN.md#43-hiding-things-and-rules-in-plain-english) (hiding and rules), [§7](../PLAN.md#7-data-model) (data).
+Design: [PLAN.md §4.2](../PLAN.md#42-ranking) (ranking), [§4.3](../PLAN.md#43-hiding-things-and-rules-in-plain-english) (hiding and rules), [§4.4](../PLAN.md#44-roundup-newsletters) (roundups), [§7](../PLAN.md#7-data-model) (data).
 
 ## How the reader talks to the agent
 

@@ -18,6 +18,13 @@ public enum Value: Sendable, Equatable {
     case text(String), int(Int64), real(Double), null
 
     public var string: String? { if case .text(let s) = self { s } else { nil } }
+    public var double: Double? {
+        switch self {
+        case .int(let i): Double(i)
+        case .real(let d): d
+        default: nil
+        }
+    }
     public var int: Int? {
         switch self {
         case .int(let i): Int(i)

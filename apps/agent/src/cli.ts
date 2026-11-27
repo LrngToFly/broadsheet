@@ -25,6 +25,7 @@ import { currentProfile, profileNotDue, rebuildProfile } from "./ai/profile.ts";
 import { applyReaderActions } from "./pipeline/reader-actions.ts";
 import { setFormat } from "./pipeline/split.ts";
 import { parsePause, pausedUntil, setPause } from "./pause.ts";
+import { editSource, type SourceChanges } from "./pipeline/sources.ts";
 import { looksLikeRoundup } from "./content/split.ts";
 import { clearEval, loadSet, reportHtml, runModel, saveSet, savedRun, fingerprint, type EvalRun } from "./ai/eval.ts";
 import { execFile } from "node:child_process";
@@ -495,6 +496,37 @@ async function format(sourceId: string | undefined, value: string | undefined) {
   });
 }
 
+/** Change one newsletter (Admin's Sources page runs this). */
+async function source(id: string | undefined) {
+  const usage = "Usage: broadsheet source <id> [--name \"New name\"] [--section <section id>|none] [--format normal|roundup|multi-section] [--mute|--unmute]";
+  if (!id || id.startsWith("--")) throw new Error(usage);
+  const changes: SourceChanges = {};
+  if (flag("name") !== undefined) changes.name = flag("name");
+  if (flag("section") !== undefined) changes.section = flag("section") === "none" ? null : flag("section");
+  if (flag("format") !== undefined) {
+    const f = SourceFormat.safeParse(flag("format"));
+    if (!f.success) throw new Error(usage);
+    changes.format = f.data;
+  }
+  if (has("mute")) changes.muted = true;
+  if (has("unmute")) changes.muted = false;
+  if (!Object.keys(changes).length) throw new Error(usage);
+  await withConfigAndDb(async (config, db) => {
+    const inFile = config.sources.find((x) => x.id === id);
+    const now = new Date();
+    const r = await editSource(db, new Mail(services(config).graph), id, changes, {
+      contentDir: p.content,
+      cutoff: new Date(now.getTime() - config.retention.days * 86_400_000).toISOString(),
+      now: now.toISOString(),
+    });
+    console.log(r.changed.length ? `Changed: ${r.changed.join("; ")}.` : "Nothing to change.");
+    if (r.moved) console.log(`Moved ${r.moved} current email(s) to the new section's folder.`);
+    for (const e of r.errors) console.log(`  ❌ ${e}`);
+    if (inFile) console.log("(It's also in your config file: editing it there would overwrite these changes.)");
+    if (r.errors.length) process.exitCode = 1;
+  });
+}
+
 /** Pause scheduled runs (Admin's menu bar does the same). */
 async function pause(arg: string | undefined) {
   if (!arg) throw new Error("Usage: broadsheet pause 30m|1h|tomorrow|off");
@@ -623,6 +655,9 @@ try {
     case "format":
       await format(args[0], args[1]);
       break;
+    case "source":
+      await source(args[0]);
+      break;
     case "pause":
       await pause(args[0]);
       break;
@@ -670,6 +705,8 @@ try {
                             away unless --force
   feed-check <url>          find a site's feed and preview it, without following it
   sources                   your newsletters, their formats, and which look like roundups
+  source <id> [--name "…"] [--section <id>|none] [--format …] [--mute|--unmute]
+                            change one newsletter (current items and emails follow a new section)
   format <id> <format>      normal, roundup (each story a brief) or multi-section (each
                             piece its own article); applies to current emails too
   resummarize [--all]       have Gemma read again the items it dropped or failed on

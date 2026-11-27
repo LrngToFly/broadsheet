@@ -48,8 +48,9 @@ export function transaction<T>(db: Db, fn: () => T): T {
 export type SyncSummary = { sections: number; sources: number; rules: number; removed: string[] };
 
 /**
- * Copy sections, sources and rules from the config file into the database (Phase 1: the file is the
- * source of truth). Sources the agent created itself (new senders) are left alone. Outlook folder ids
+ * Copy sections, sources and rules from the config file into the database. Sections still follow the file; sources
+ * and rules follow it only when their text in the file changes (Admin and the reader edit them too). Sources the
+ * agent created itself (new senders) are left alone. Outlook folder ids
  * already stored for a section are kept.
  */
 export function syncConfig(db: Db, config: Config, now = new Date().toISOString()): SyncSummary {
@@ -81,7 +82,15 @@ export function syncConfig(db: Db, config: Config, now = new Date().toISOString(
          fixed_section_id = excluded.fixed_section_id, origin = 'config',
          format = CASE WHEN ? IS NULL THEN sources.format ELSE excluded.format END -- left out of the file: broadsheet format's choice stands`,
     );
+    // Sources: the database is the master copy (docs/phase-3.md A2), because Admin edits them too. A source in the
+    // config file is copied in when it's new or when its text in the file changes; otherwise Admin's changes stand.
+    const sourceKey = (id: string) => `configsource:${id}`;
     for (const s of config.sources) {
+      const hash = createHash("sha256").update(JSON.stringify(s)).digest("hex").slice(0, 16);
+      const seen = db.prepare("SELECT value FROM agent_state WHERE key = ?").get(sourceKey(s.id)) as { value: string } | undefined;
+      const exists = db.prepare("SELECT 1 FROM sources WHERE id = ?").get(s.id);
+      if (seen?.value === hash && exists) continue;
+      db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)").run(sourceKey(s.id), hash);
       upsertSource.run(
         s.id,
         s.channel,
@@ -99,6 +108,7 @@ export function syncConfig(db: Db, config: Config, now = new Date().toISOString(
     for (const row of db.prepare("SELECT id FROM sources WHERE origin = 'config'").all() as { id: string }[]) {
       if (!sourceIds.includes(row.id)) {
         db.prepare("DELETE FROM sources WHERE id = ?").run(row.id);
+        db.prepare("DELETE FROM agent_state WHERE key = ?").run(sourceKey(row.id));
         removed.push(`source ${row.id}`);
       }
     }

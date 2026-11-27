@@ -44,6 +44,17 @@ final class AgentModel {
         Task { try? await Task.sleep(for: .seconds(1)); refresh() }
     }
 
+    /// Run one of the agent's commands and wait for it. nil if the agent can't be found (the error says why).
+    func run(_ args: [String]) async -> CommandResult? {
+        guard let command else { lastError = "The agent isn't scheduled, so Admin can't find it. In Terminal: broadsheet install"; return nil }
+        do {
+            return try await command.run(args)
+        } catch {
+            lastError = "Couldn't run the agent: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     /// "1h", "tomorrow" or "off".
     func pause(_ how: String) {
         guard let command else { lastError = "The agent isn't scheduled, so Admin can't find it. In Terminal: broadsheet install"; return }

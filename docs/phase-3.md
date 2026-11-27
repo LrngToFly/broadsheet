@@ -5,7 +5,7 @@ Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): you manage everything
 | # | Milestone | You can… | Status |
 |---|---|---|---|
 | A1 | **The app and the menu bar:** a menu-bar item showing what the agent is doing (**Idle**, **Waiting — you're active**, **Working (3 of 12)**, **Paused**), the last run, the backlog and errors; **Run now** and **Pause for 1 hour / until tomorrow**; an Admin window with a Status page and the log viewer. Built from the command line into `~/Applications/Broadsheet Admin.app` | see and control the agent without Terminal | built |
-| A2 | **Sources:** one list (email and feeds) with latest post date, posts in the last 30 days and average rating; rename, fixed section, mute, format (normal, roundup, multi-section) and roundup suggestions; sources silent for a long time highlighted with **Disable**. The database becomes the master copy for sources | manage your newsletters | |
+| A2 | **Sources:** one list (email and feeds) with latest post date, posts in the last 30 days and average rating; rename, fixed section, mute, format (normal, roundup, multi-section) and roundup suggestions; sources silent for a long time highlighted with **Disable**. The database becomes the master copy for sources | manage your newsletters | built |
 | A3 | **Sections and folders:** add, rename, reorder or remove sections, with a preview of each Outlook folder change before it's applied | change the paper's sections | |
 | A4 | **Rules and your words:** the reader's Rules page and Hidden list in Admin, plus the full condition editor for Check and include rules with **Test against recent mail** | edit rules precisely | |
 | A5 | **Following and feeds:** **Follow by URL** with a preview, **Switch to feed**, best version (email, feed or web page), staleness, and the unsubscribe helper | follow authors without email | |
@@ -41,4 +41,15 @@ The script compiles the package in release mode with Xcode's tools, wraps the pr
 - **The Admin window** (**Open Admin…**, or ⌘,) has a **Status** page (state, schedule, backlog, the last 20 runs with their errors) and a **Log** page (the end of `~/Library/Logs/Broadsheet/agent.log`).
 - **Start it at login:** *System Settings → General → Login Items → +* and choose `~/Applications/Broadsheet Admin.app`. Quitting it doesn't affect the agent, which runs on its own schedule either way.
 - **Tests:** `apps/admin/build.sh --test` (Swift Testing: the state logic, reading the launchd job, and reading a database shaped like the agent's).
+
+## A2: Sources
+
+- **The Sources page** lists every newsletter and feed: name, section, format, latest post, posts in the last 30 days and your average rating (👍 +1, 👌 0, 👎 −1, with the number of ratings). Filter by Email or Feeds, search by name or address, and sort by any column. Badges mark newsletters that are **Off**, **New** (found by the agent), **Silent** (nothing for 30 days or more) or look like a **Roundup?**.
+- **Editing:** pick one and the panel on the right changes its name, section (or "Gemma chooses"), format, and whether its emails are included. **Apply** runs `broadsheet source <id> …`; the same works from Terminal, e.g. `broadsheet source garden --section gardening --format roundup`.
+  - A new **section** also moves its current articles, and their emails in Outlook, except ones you moved yourself.
+  - Turned **off**, its emails are left in the Inbox from now on.
+  - A silent newsletter offers **Turn it off**; a roundup-looking one offers **Make it a roundup**.
+- **The database is now the master copy for sources:** a newsletter in the config file is copied in only when it's new or when its text in the file changes, so changes made in Admin stick. (Rules already worked this way.)
+- **Posts per source** are counted in a `source_posts` table filled by the database itself whenever a post arrives (not for briefs), and kept 90 days, since items last only a few days.
+- **Open the window directly:** `open -a "Broadsheet Admin" --args --admin` starts the app with the Admin window open (otherwise only the menu-bar item appears).
 

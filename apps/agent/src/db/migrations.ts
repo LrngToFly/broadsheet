@@ -258,4 +258,20 @@ export const migrations: string[] = [
   ALTER TABLE items ADD COLUMN links_json TEXT NOT NULL DEFAULT '[]'; -- a piece's links, to spot the same story elsewhere
   CREATE INDEX items_parent ON items(parent_id);
   `,
+
+  /* 9: posts per source over time, for Admin's Sources list (Phase 3 A2) */ `
+  -- One row per email or feed post (not per brief), kept 90 days: items themselves last only a few days.
+  CREATE TABLE source_posts (
+    item_id         TEXT PRIMARY KEY,
+    source_id       TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    published_at    TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX source_posts_source ON source_posts(source_id, published_at);
+  INSERT OR IGNORE INTO source_posts SELECT id, source_id, published_at FROM items WHERE parent_id IS NULL;
+  -- Recorded by the database itself whenever a post arrives, whichever code adds it.
+  CREATE TRIGGER items_count_posts AFTER INSERT ON items WHEN NEW.parent_id IS NULL
+  BEGIN
+    INSERT OR IGNORE INTO source_posts (item_id, source_id, published_at) VALUES (NEW.id, NEW.source_id, NEW.published_at);
+  END;
+  `,
 ];

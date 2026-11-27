@@ -19,6 +19,9 @@ struct BroadsheetAdminApp: App {
                 .frame(minWidth: 720, minHeight: 460)
         }
         .defaultSize(width: 900, height: 600)
+        // Started with --admin (e.g. `open -a "Broadsheet Admin" --args --admin`): open this window straight away.
+        // Otherwise, at login, only the menu-bar item appears.
+        .defaultLaunchBehavior(CommandLine.arguments.contains("--admin") ? .presented : .suppressed)
     }
 }
 

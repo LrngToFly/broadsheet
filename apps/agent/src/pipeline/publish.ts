@@ -271,6 +271,7 @@ async function prune(db: Db, appFolder: AppFolderPort, contentDir: string, cutof
 
   const day = 24 * 3600 * 1000;
   db.prepare("DELETE FROM seen WHERE first_seen_at < ?").run(new Date(now.getTime() - 90 * day).toISOString());
+  db.prepare("DELETE FROM source_posts WHERE published_at < ?").run(new Date(now.getTime() - 90 * day).toISOString());
   db.prepare("DELETE FROM runs WHERE started_at < ?").run(new Date(now.getTime() - 14 * day).toISOString());
   // Rules: "hid N in the last 30 days" needs only 30 days; finished drafting requests a month; and the article
   // text copied for a draft lasts no longer than the article itself.

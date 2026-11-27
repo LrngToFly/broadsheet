@@ -14,7 +14,7 @@ function setup() {
   syncConfig(db, config);
   db.prepare("UPDATE sections SET mail_folder_id = 'F-' || id").run();
   db.prepare("INSERT INTO sources (id, channel, status, origin, created_at, fixed_section_id) VALUES ('trail', 'email', 'enabled', 'auto', 'x', 'outdoors')").run();
-  for (const [id, from] of [["hike", "ai"], ["camp", "user"]]) {
+  for (const [id, from] of [["hike", "ai"], ["camp", "user"]] as const) {
     db.prepare("INSERT INTO items (id, source_id, channel, message_id, mail_folder_id, title, published_at, section_id, section_source, created_at) VALUES (?, 'trail', 'email', ?, 'F-outdoors', 't', '2026-11-27', 'outdoors', ?, 'x')").run(id, `m-${id}`, from);
   }
   const calls: string[] = [];

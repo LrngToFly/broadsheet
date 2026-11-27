@@ -11,6 +11,8 @@ import { aiMayRun } from "../activity.ts";
 import type { LlmProvider } from "../ai/provider.ts";
 import { enrich } from "../ai/enrich.ts";
 import type { MailPort } from "./stage-a-email.ts";
+import { learn } from "./affinity.ts";
+import { currentProfile } from "../ai/profile.ts";
 
 export const MAX_AI_ATTEMPTS = 3;
 
@@ -51,6 +53,8 @@ export async function stageB(opts: {
   }));
   const sortingId = (db.prepare("SELECT value FROM agent_state WHERE key = 'folder:_sorting'").get() as { value: string } | undefined)?.value;
   const wasLoaded = await llm.isLoaded().catch(() => false);
+  const learned = learn(db); // for section hints from your moves
+  const readerProfile = currentProfile(db, config).text;
 
   const items = db
     .prepare(
@@ -72,6 +76,7 @@ export async function stageB(opts: {
         }
       }
       const fixed = it.section_source === "fixed" ? it.section_id : null;
+      const yours = it.section_source === "user" ? it.section_id : null; // you moved it: that stands
       let text: string;
       try {
         text = await readFile(join(opts.contentDir, it.id, "article.txt"), "utf8");
@@ -83,7 +88,7 @@ export async function stageB(opts: {
 
       log(`Gemma is reading: ${it.title}`);
       const r = await enrich(llm, { title: it.title, source: it.source_name, author: it.author, text, fixedSection: fixed }, {
-        sections, instructionRules, sourceId: it.source_id, readerProfile: config.readerProfile, numCtx: config.ai.numCtx,
+        sections, instructionRules, sourceId: it.source_id, readerProfile, numCtx: config.ai.numCtx,
       }).catch((e: Error) => ({ ok: false as const, error: e.message, attempts: 1, seconds: 0 }));
 
       if (!r.ok) {
@@ -94,20 +99,24 @@ export async function stageB(opts: {
       }
 
       const d = r.data;
-      const sectionId = fixed ?? d.section;
+      // You keep moving this source's items to one section: new ones go there too.
+      const hint = fixed || yours ? null : learned.sectionHint(it.source_id);
+      const hinted = hint && sections.some((s) => s.id === hint) ? hint : null;
+      const sectionId = fixed ?? yours ?? hinted ?? d.section;
+      const sectionSource = fixed ? "fixed" : yours ? "user" : hinted ? "learned" : "ai";
       const rule = d.hidden_by_rule ? instructionRules.find((x) => x.id === d.hidden_by_rule) : undefined;
       db.prepare(
         `UPDATE items SET summary = ?, key_points_json = ?, tags_json = ?, interest = ?, why_its_here = ?, read_minutes = ?, is_article = ?,
            section_id = ?, section_source = ?, hidden_by = ?, model = ?, ai_status = 'done', ai_attempts = ai_attempts + 1 WHERE id = ?`,
       ).run(
         d.summary, JSON.stringify(d.key_points), JSON.stringify(d.tags), d.interest, d.why_its_here, d.read_minutes, d.is_article ? 1 : 0,
-        sectionId, fixed ? "fixed" : "ai", rule?.id ?? null, llm.id, it.id,
+        sectionId, sectionSource, rule?.id ?? null, llm.id, it.id,
       );
 
       // File the email: from _Sorting into its section folder, or to Deleted Items if a rule hid it.
       // An email the AI filed earlier is re-filed if the AI changes its mind (re-reading after a prompt change).
       let filed = "";
-      const previousAiFolder = it.section_source === "ai" ? sections.find((s) => s.id === it.section_id)?.mail_folder_id : undefined;
+      const previousAiFolder = it.section_source === "ai" || it.section_source === "learned" ? sections.find((s) => s.id === it.section_id)?.mail_folder_id : undefined;
       const movable = it.mail_folder_id === sortingId || (previousAiFolder && it.mail_folder_id === previousAiFolder);
       if (it.channel === "email" && it.message_id && it.mail_folder_id && movable) {
         const target = rule ? (rule.mail === "deleted-items" ? "deleteditems" : null) : sections.find((s) => s.id === sectionId)?.mail_folder_id;

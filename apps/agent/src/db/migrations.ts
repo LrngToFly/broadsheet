@@ -144,4 +144,62 @@ export const migrations: string[] = [
   ) STRICT;
   CREATE INDEX preference_records_source ON preference_records(source_id);
   `,
+
+  /* 5: section hints and the reader profile (Phase 2 P2) */ `
+  -- items.section_source gains 'learned': filed by a hint from your moves. SQLite can't change a CHECK
+  -- constraint in place, so the table is rebuilt with the same columns in the same order.
+  CREATE TABLE items_new (
+    id              TEXT PRIMARY KEY,
+    source_id       TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    channel         TEXT NOT NULL CHECK (channel IN ('email', 'feed')),
+    message_id      TEXT,                 -- Graph message id (email)
+    internet_message_id TEXT,             -- RFC 5322 Message-ID (email), stable across folder moves
+    mail_folder_id  TEXT,
+    title           TEXT NOT NULL,
+    author          TEXT,
+    published_at    TEXT NOT NULL,
+    url             TEXT,
+    content_origin  TEXT CHECK (content_origin IN ('email', 'feed', 'web')),
+    is_teaser       INTEGER NOT NULL DEFAULT 0,
+    opening         TEXT NOT NULL DEFAULT '',
+    word_count      INTEGER NOT NULL DEFAULT 0,
+    section_id      TEXT REFERENCES sections(id) ON DELETE SET NULL,
+    section_source  TEXT CHECK (section_source IN ('fixed', 'ai', 'user', 'learned')),
+    tags_json       TEXT NOT NULL DEFAULT '[]',
+    summary         TEXT,
+    key_points_json TEXT NOT NULL DEFAULT '[]',
+    interest        INTEGER,
+    why_its_here    TEXT,
+    read_minutes    INTEGER,
+    is_article      INTEGER,
+    score           REAL NOT NULL DEFAULT 0,
+    model           TEXT,
+    ai_status       TEXT NOT NULL DEFAULT 'pending' CHECK (ai_status IN ('pending', 'done', 'failed', 'skipped')),
+    ai_attempts     INTEGER NOT NULL DEFAULT 0,
+    hidden_by       TEXT,                 -- rule id, or 'user'
+    saved           INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    image           TEXT,
+    content_published INTEGER NOT NULL DEFAULT 0,
+    feed_guid       TEXT,
+    images_json     TEXT,
+    rating          INTEGER CHECK (rating IN (-1, 0, 1)),
+    rated_at        TEXT
+  ) STRICT;
+  INSERT INTO items_new SELECT * FROM items;
+  DROP TABLE items;
+  ALTER TABLE items_new RENAME TO items;
+  CREATE INDEX items_published ON items(published_at);
+  CREATE INDEX items_ai_status ON items(ai_status);
+  CREATE INDEX items_url ON items(url);
+
+  -- Long-term (PLAN.md §7.1 row 6): the profile Gemma writes from your ratings. The last 4 are kept.
+  CREATE TABLE reader_profiles (
+    version         INTEGER PRIMARY KEY,
+    text            TEXT NOT NULL,
+    built_at        TEXT NOT NULL,
+    model           TEXT NOT NULL,
+    ratings_used    INTEGER NOT NULL
+  ) STRICT;
+  `,
 ];

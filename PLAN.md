@@ -239,6 +239,8 @@ defaults: w_c = 0.45, w_a = 0.35, w_f = 0.20 (tunable in Admin)
 - **Author affinity:** the average of your ratings for that author (👍 +1, 👌 0, 👎 −1), smoothed toward neutral until there are enough ratings.
 - **Freshness:** decays to zero at the retention cutoff.
 - **Exploration:** a small boost for unrated sources, so the Broadsheet doesn't narrow itself to only what it already knows you like.
+- **Section hints:** when you move a source's items to the same section twice in a row, its new items go there too.
+- The exact formulas, smoothing and thresholds are in [docs/phase-2.md](docs/phase-2.md#how-the-ranking-learns-p2).
 
 The **Front Page** shows the top items across all sections, and each section tab is ranked separately.
 

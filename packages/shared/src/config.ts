@@ -81,9 +81,14 @@ export const Config = z
         content: z.number().min(0).default(0.45),
         author: z.number().min(0).default(0.35),
         freshness: z.number().min(0).default(0.2),
+        /** How far the topics learned from your ratings can outweigh Gemma's interest score (0–1), once there are plenty of ratings. */
+        learnedTopics: z.number().min(0).max(1).default(0.5),
+        /** Bonus for sources you've rated fewer than 3 items from, so new ones get a fair chance. */
+        exploration: z.number().min(0).max(0.5).default(0.05),
       })
       .prefault({}),
-    /** A few sentences about what you like to read. Phase 2 learns this from your ratings. */
+    /** A few sentences about what you like to read, in your own words. Gemma also writes a profile from your
+     *  ratings each week; it starts from these words and they win where the two disagree. */
     readerProfile: z.string().max(4000).default(""),
   })
   .superRefine((c, ctx) => {

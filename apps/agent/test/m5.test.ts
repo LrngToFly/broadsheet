@@ -156,9 +156,9 @@ describe("Stage B", () => {
 
 describe("ranking and cleanup", () => {
   it("ranks interesting, fresh items first", () => {
-    const fresh = score({ publishedAt: "2026-11-27T12:00:00Z", interest: 90 }, NOW, config);
-    const dull = score({ publishedAt: "2026-11-27T12:00:00Z", interest: 10 }, NOW, config);
-    const old = score({ publishedAt: "2026-11-24T12:00:00Z", interest: 90 }, NOW, config);
+    const fresh = score({ publishedAt: "2026-11-27T12:00:00Z", interest: 90, sourceId: "s", author: null, tags: [], section: null }, NOW, config);
+    const dull = score({ publishedAt: "2026-11-27T12:00:00Z", interest: 10, sourceId: "s", author: null, tags: [], section: null }, NOW, config);
+    const old = score({ publishedAt: "2026-11-24T12:00:00Z", interest: 90, sourceId: "s", author: null, tags: [], section: null }, NOW, config);
     expect(fresh).toBeGreaterThan(dull);
     expect(fresh).toBeGreaterThan(old);
   });

@@ -12,6 +12,7 @@ import type { Db } from "../db/db.ts";
 import { cacheImages } from "../content/images.ts";
 import type { AppFolder } from "../microsoft/onedrive.ts";
 import { score } from "./ranking.ts";
+import { learn } from "./affinity.ts";
 
 export { freshness } from "./ranking.ts";
 
@@ -53,6 +54,7 @@ export async function publish(opts: {
     )
     .all(cutoff) as any[];
 
+  const learned = learn(db, now); // what your ratings say, for the ranking
   const uploaded = new Set<string>(); // images uploaded during this run
   const cards: ItemCard[] = [];
 
@@ -96,7 +98,10 @@ export async function publish(opts: {
       tags: JSON.parse(r.tags_json),
       whyItsHere: summarized ? r.why_its_here : null,
       readMinutes: r.read_minutes ?? Math.max(1, Math.round(r.word_count / WORDS_PER_MINUTE)),
-      score: score({ publishedAt: r.published_at, interest: summarized ? r.interest : null }, now, config),
+      score: score(
+        { publishedAt: r.published_at, interest: summarized ? r.interest : null, sourceId: r.source_id, author: r.author, tags: JSON.parse(r.tags_json), section: r.section_id },
+        now, config, learned,
+      ),
       image: r.image,
       content: `items/${r.id}.html`,
       rating: r.rating ?? null,

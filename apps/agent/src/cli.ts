@@ -20,6 +20,8 @@ import { publish } from "./pipeline/publish.ts";
 import { stageAFeeds } from "./pipeline/stage-a-feeds.ts";
 import { discoverFeed } from "./feeds/feed.ts";
 import { stageB } from "./pipeline/stage-b.ts";
+import { learn } from "./pipeline/affinity.ts";
+import { currentProfile, profileNotDue, rebuildProfile } from "./ai/profile.ts";
 import { applyReaderActions } from "./pipeline/reader-actions.ts";
 import { OllamaProvider, ollamaStatus } from "./ai/ollama.ts";
 import { acquireLock, keepAwakeWhileRunning, LOG_FILE, rotateLogs } from "./housekeeping.ts";
@@ -309,6 +311,21 @@ async function runLocked(opts: { stage?: string; dryRun: boolean; force: boolean
         console.log(`Republished ${pubB.items} items, ranked.`);
         errors.push(...pubB.errors);
       }
+
+      // About once a week, Gemma rewrites your reader profile from your ratings (while you're still away).
+      if (!b.deferred && !profileNotDue(db)) {
+        const may = opts.force ? ({ ok: true } as const) : aiMayRun(await sampleActivity(), config.politeness);
+        if (may.ok) {
+          try {
+            const prof = await rebuildProfile({ db, config, llm });
+            console.log(`🪞 Gemma rewrote your reader profile (version ${prof.version}, ${Math.round(prof.seconds)} s). See it with: broadsheet profile`);
+            counts.profile = prof.version;
+          } catch (e) {
+            console.log(`  ❌ couldn't rewrite the reader profile: ${(e as Error).message}`);
+            errors.push(`reader profile: ${(e as Error).message}`);
+          }
+        }
+      }
     }
 
     db.prepare("INSERT INTO runs (started_at, finished_at, stage, counts_json, deferred_reason, errors_json, model) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
@@ -338,6 +355,42 @@ async function scheduleStatus() {
     }
     const pending = db.prepare("SELECT count(*) n FROM items WHERE ai_status = 'pending' AND hidden_by IS NULL").get() as { n: number };
     console.log(`  ${pending.n} item(s) waiting for Gemma.`);
+  });
+}
+
+/** What the Broadsheet has learned about your tastes, and the reader profile Gemma uses. */
+async function profile(rebuild: boolean) {
+  await withConfigAndDb(async (config, db) => {
+    if (rebuild) {
+      const llm = new OllamaProvider({ baseUrl: config.ai.baseUrl, model: config.ai.model, numCtx: config.ai.numCtx, temperature: config.ai.temperature });
+      console.log("Gemma is writing your reader profile from your ratings…");
+      const prof = await rebuildProfile({ db, config, llm });
+      console.log(`Done (version ${prof.version}, ${Math.round(prof.seconds)} s).\n`);
+    }
+    const prof = currentProfile(db, config);
+    console.log("READER PROFILE");
+    if (prof.from === "learned") console.log(`Written by ${prof.model} from your ratings, ${new Date(prof.builtAt!).toLocaleDateString()} (version ${prof.version}):`);
+    else if (prof.from === "yours") console.log("Your own words, from readerProfile in the config file (Gemma writes one from your ratings once there are enough):");
+    else console.log("None yet. Add a few sentences as readerProfile in the config file, or rate articles and Gemma will write one.");
+    if (prof.text) console.log(`\n${prof.text}\n`);
+    const due = profileNotDue(db);
+    console.log(due ? `Next rewrite: not yet (${due}).` : "Next rewrite: due on the next run while you're away.");
+
+    const s = learn(db).summary();
+    console.log(`\nWHAT YOUR RATINGS SAY (${s.ratings} rating${s.ratings === 1 ? "" : "s"})`);
+    const show = (title: string, rows: [string, { value: number; ratings: number }][]) => {
+      if (!rows.length) return;
+      const fmt = ([k, a]: [string, { value: number; ratings: number }]) => `    ${a.value >= 0.5 ? "+" : "−"}${Math.abs(a.value - 0.5).toFixed(2)}  ${k} (${a.ratings})`;
+      const liked = rows.filter(([, a]) => a.value > 0.5).slice(0, 8);
+      const disliked = rows.filter(([, a]) => a.value < 0.5).slice(-8).reverse();
+      console.log(`  ${title}:`);
+      if (liked.length) console.log(["   liked:", ...liked.map(fmt)].join("\n"));
+      if (disliked.length) console.log(["   disliked:", ...disliked.map(fmt)].join("\n"));
+      if (!liked.length && !disliked.length) console.log("    nothing either way yet");
+    };
+    show("Authors", s.authors);
+    show("Topics", s.topics);
+    for (const [source, section] of s.hints) console.log(`  You keep moving ${source} to ${section}: its new items go there.`);
   });
 }
 
@@ -395,6 +448,9 @@ try {
     case "resummarize":
       await resummarize(has("all"));
       break;
+    case "profile":
+      await profile(has("rebuild"));
+      break;
     case "feed-check":
       await feedCheck(args[0]);
       break;
@@ -430,6 +486,8 @@ try {
   feed-check <url>          find a site's feed and preview it, without following it
   resummarize [--all]       have Gemma read again the items it dropped or failed on
                             (--all: every current item, e.g. after changing your profile)
+  profile [--rebuild]       what your ratings taught it, and the reader profile Gemma uses
+                            (--rebuild: have Gemma rewrite the profile now)
   install                   run the agent every 15 minutes in the background (launchd)
   uninstall                 stop running it in the background
   status                    is it scheduled, and what did the last runs do

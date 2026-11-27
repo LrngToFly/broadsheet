@@ -52,7 +52,7 @@ The script compiles the package in release mode with Xcode's tools, wraps the pr
   - A silent newsletter offers **Turn it off**; a roundup-looking one offers **Make it a roundup**.
 - **The database is now the master copy for sources:** a newsletter in the config file is copied in only when it's new or when its text in the file changes, so changes made in Admin stick. (Rules already worked this way.)
 - **Posts per source** are counted in a `source_posts` table filled by the database itself whenever a post arrives (not for briefs), and kept 90 days, since items last only a few days.
-- **Open the window directly:** `open -a "Broadsheet Admin" --args --admin` starts the app with the Admin window open (otherwise only the menu-bar item appears).
+- **Opening the window:** opening Broadsheet Admin yourself (Spotlight, Finder, Launchpad), even while it's already running, shows the Admin window; while it's open the app is in the Dock and ⌘-Tab. Started by Login Items, only the menu-bar item appears. (Before 2026-11-27, opening it from Spotlight while it was running showed nothing.)
 
 ## A3: Sections and folders
 

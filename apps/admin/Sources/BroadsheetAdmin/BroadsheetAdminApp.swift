@@ -1,34 +1,73 @@
 // Broadsheet Admin: a menu-bar item (like a Windows tray icon) and an Admin window (docs/phase-3.md).
 import AdminCore
+import AppKit
 import SwiftUI
 
 @main
 struct BroadsheetAdminApp: App {
-    @State private var agent = AgentModel()
+    @NSApplicationDelegateAdaptor private var app: AppDelegate
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(agent: agent)
+            MenuContent(agent: app.agent, openAdmin: { app.showAdmin() })
         } label: {
-            Image(systemName: agent.state.symbol)
-                .accessibilityLabel("The Broadsheet: \(agent.state.headline)")
+            Image(systemName: app.agent.state.symbol)
+                .accessibilityLabel("The Broadsheet: \(app.agent.state.headline)")
         }
+    }
+}
 
-        Window("Broadsheet Admin", id: "admin") {
-            AdminWindow(agent: agent)
-                .frame(minWidth: 720, minHeight: 460)
+/// Owns the Admin window, so it opens whenever you open the app yourself (Spotlight, Finder, the Dock), but not
+/// when the app starts at login, when only the menu-bar item should appear.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    let agent = AgentModel()
+    private var window: NSWindow?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        if !launchedAsLoginItem() || CommandLine.arguments.contains("--admin") { showAdmin() }
+    }
+
+    /// Opened again while already running (e.g. from Spotlight): show the window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showAdmin()
+        return false
+    }
+
+    func showAdmin() {
+        if window == nil {
+            let w = NSWindow(contentViewController: NSHostingController(rootView: AdminWindow(agent: agent).frame(minWidth: 720, minHeight: 460)))
+            w.title = "Broadsheet Admin"
+            w.setContentSize(NSSize(width: 900, height: 600))
+            w.styleMask.insert([.resizable, .miniaturizable, .closable, .titled])
+            w.isReleasedWhenClosed = false
+            w.delegate = self
+            w.setFrameAutosaveName("BroadsheetAdmin")
+            if w.frame.origin == .zero { w.center() }
+            window = w
         }
-        .defaultSize(width: 900, height: 600)
-        // Started with --admin (e.g. `open -a "Broadsheet Admin" --args --admin`): open this window straight away.
-        // Otherwise, at login, only the menu-bar item appears.
-        .defaultLaunchBehavior(CommandLine.arguments.contains("--admin") ? .presented : .suppressed)
+        // While the window is open the app shows in the Dock and ⌘-Tab, like any app; it goes back to the menu bar only
+        // when the window closes.
+        NSApp.setActivationPolicy(.regular)
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+    }
+
+    /// Started by Login Items? (macOS marks that launch with the 'lgit' value on its open-application event.)
+    private func launchedAsLoginItem() -> Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent, event.eventID == 0x6F61_7070 /* 'oapp' */ else { return false }
+        return event.paramDescriptor(forKeyword: 0x7072_6F70 /* 'prop' */)?.enumCodeValue == 0x6C67_6974 /* 'lgit' */
     }
 }
 
 /// The menu that drops down from the menu-bar item.
 struct MenuContent: View {
     let agent: AgentModel
-    @Environment(\.openWindow) private var openWindow
+    let openAdmin: () -> Void
 
     var body: some View {
         let s = agent.snapshot
@@ -52,10 +91,7 @@ struct MenuContent: View {
         }
 
         Divider()
-        Button("Open Admin…") {
-            openWindow(id: "admin")
-            NSApp.activate()
-        }
+        Button("Open Admin…") { openAdmin() }
         .keyboardShortcut(",")
         Link("Open the Broadsheet", destination: URL(string: "https://lrngtofly.github.io/broadsheet/")!)
         Divider()

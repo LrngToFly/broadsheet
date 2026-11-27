@@ -15,6 +15,8 @@ import { checkFolders, ensureFolders, type FolderReport } from "./microsoft/mail
 import { AppFolder } from "./microsoft/onedrive.ts";
 import { ollamaStatus } from "./ai/ollama.ts";
 import { aiMayRun, sampleActivity } from "./activity.ts";
+import { Mail } from "./microsoft/mail.ts";
+import { stageAEmail, type EmailOutcome } from "./pipeline/stage-a-email.ts";
 
 const p = paths();
 const here = dirname(fileURLToPath(import.meta.url));
@@ -205,6 +207,35 @@ async function doctor(): Promise<boolean> {
   return healthy;
 }
 
+function printOutcomes(outcomes: EmailOutcome[], dryRun: boolean) {
+  const verb = dryRun ? "would go to" : "→";
+  for (const o of outcomes) {
+    const tag = o.error ? "❌" : o.decision.action === "include" ? "📰" : o.decision.action === "hide" ? "🙈" : "↩️ ";
+    console.log(`${tag} ${o.subject.slice(0, 70)}`);
+    console.log(`     ${o.from} · source ${o.source}${o.newSource ? " (new)" : ""} · ${o.words} words`);
+    console.log(o.error ? `     error: ${o.error}` : `     ${verb} ${o.destination} (${o.decision.why})`);
+  }
+}
+
+async function run(stage: string | undefined, dryRun: boolean) {
+  if (stage && stage !== "a") throw new Error(`Only stage "a" exists so far (got "${stage}").`);
+  await withConfigAndDb(async (config, db) => {
+    const { graph } = services(config);
+    const started = new Date().toISOString();
+    const r = await stageAEmail({ mail: new Mail(graph), db, config, contentDir: p.content, dryRun });
+    if (!r.outcomes.length) console.log("No new email.");
+    printOutcomes(r.outcomes, dryRun);
+    const c = r.counts;
+    console.log(`\n${dryRun ? "Dry run (nothing moved or saved): " : ""}${c.included} included, ${c.skipped} left in Inbox, ${c.hidden} hidden, ${c.newSources} new sources, ${c.errors} errors.`);
+    if (!dryRun) {
+      db.prepare("INSERT INTO runs (started_at, finished_at, stage, counts_json, errors_json) VALUES (?, ?, 'a', ?, ?)").run(
+        started, new Date().toISOString(), JSON.stringify(c), JSON.stringify(r.outcomes.filter((o) => o.error).map((o) => o.error)),
+      );
+    }
+    if (c.errors) process.exitCode = 1;
+  });
+}
+
 // ---------------------------------------------------------------------------------------------------
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -228,6 +259,9 @@ try {
     case "folders":
       await folders(has("create"));
       break;
+    case "run":
+      await run(flag("stage"), has("dry-run"));
+      break;
     case "doctor":
       process.exitCode = (await doctor()) ? 0 : 1;
       break;
@@ -242,6 +276,8 @@ try {
   login --import-spike      reuse the Phase 0 sign-in instead
   logout                    remove the saved sign-in
   folders [--create]        check (or create/rename) the Outlook section folders
+  run --stage a [--dry-run] file new newsletters and save them for summarizing
+                            (--dry-run shows what would happen, changes nothing)
   doctor                    check everything the agent needs
   paths                     show where the agent keeps its files`);
       if (cmd) process.exitCode = 1;

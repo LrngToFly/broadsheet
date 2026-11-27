@@ -169,13 +169,13 @@ Each run has two stages. **Stage A** is light and always runs. **Stage B** is th
 
 #### Stage A — light (seconds, mostly network)
 1. **Collect ratings**, section corrections, hides and rule requests from `OneDrive/ratings/`, apply them, then delete the files.
-2. **Fetch new mail** from the Inbox and `_Add` with a Graph *delta query*.
+2. **Fetch new mail** from the Inbox (received within the retention window, and not already seen) and everything in `_Add`. Messages are addressed by Graph *immutable ids*, so an email keeps its id when it's moved between folders. (A simple listing replaced the planned *delta query*: the Inbox stays small, and a listing can't lose its place the way a delta link can expire.)
 3. **Decide what's included** ([§3.2](#32-choosing-which-emails-to-include)).
    - **Included** (in dedicated mode: everything not excluded, and not transactional or account mail): moved right away, to its section folder if the source has a fixed section, otherwise to `_Sorting` ([§4.1](#41-email-folders-mirror-the-sections)). New senders become sources marked **New**.
    - **Account or transactional mail:** left in the Inbox.
    - **Matches a Check rule** ([§4.3](#43-hiding-things-and-rules-in-plain-english)): moved to Deleted Items or left in the Inbox, as that rule says, and listed as hidden.
 4. **Poll the feeds** that are due ([§3.3](#33-following-by-url-direct-feeds)).
-5. **Clean up the content:**
+5. **Clean up the content** (Readability throws away images in table-based email layouts, so emails are cleaned directly; Readability is kept for web pages):
    - Sanitize the HTML, and strip tracking pixels and boilerplate.
    - Unwrap click-tracking redirects and drop `utm_*` parameters.
    - Pull out the author, publication, canonical URL and hero image.

@@ -15,11 +15,13 @@ export const ConditionField = z.enum([
 ]);
 
 export const Condition = z.union([
-  z.object({
-    field: ConditionField.exclude(["wordCount"]),
-    op: z.enum(["contains", "equals", "matches"]), // matches = regular expression, case-insensitive
-    value: z.string().min(1),
-  }),
+  z
+    .object({
+      field: ConditionField.exclude(["wordCount"]),
+      op: z.enum(["contains", "equals", "matches"]), // matches = regular expression, case-insensitive
+      value: z.string().min(1),
+    })
+    .refine((c) => c.op !== "matches" || isValidRegex(c.value), { message: "not a valid regular expression", path: ["value"] }),
   z.object({
     field: z.literal("wordCount"),
     op: z.enum(["lessThan", "greaterThan"]),
@@ -27,6 +29,15 @@ export const Condition = z.union([
   }),
 ]);
 export type Condition = z.infer<typeof Condition>;
+
+function isValidRegex(source: string): boolean {
+  try {
+    new RegExp(source, "i");
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const common = {
   id: z.string().regex(/^[a-z0-9-]+$/),

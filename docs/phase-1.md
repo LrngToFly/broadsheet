@@ -8,8 +8,8 @@ Phase 1 is built in milestones. Each one ends with something you can run.
 |---|---|---|---|
 | M1 | **Foundations:** pnpm monorepo, shared schemas (config, edition, AI output, rules), agent config file, SQLite database | run `broadsheet init` and `broadsheet doctor` to create and check your config file and database | ✅ done |
 | M2 | **Sign-in and Graph:** device-code login, tokens saved encrypted with the key in the Keychain, mail and OneDrive clients, `broadsheet doctor` checks sign-in, folders, OneDrive and Ollama | run `broadsheet login` and `broadsheet doctor` | ✅ done |
-| M3 | **Stage A, email:** delta fetch, include/skip decisions (transactional mail, Check rules), section folders, move to `_Sorting` or a fixed section, content cleanup, images, seen IDs | watch new newsletters move out of the Inbox | next |
-| M4 | **Stage A, feeds and publishing:** follow feeds from the config file, polling, best version, `edition.json` + item files in OneDrive with "summary pending" | see items appear in OneDrive within minutes | |
+| M3 | **Stage A, email:** fetch new Inbox and `_Add` mail, include/skip/hide decisions (account mail, muted sources, Check rules), move to `_Sorting` or a fixed section, content cleanup, seen IDs, `broadsheet run --stage a [--dry-run]` | watch new newsletters move out of the Inbox | ✅ done |
+| M4 | **Stage A, feeds and publishing:** follow feeds from the config file, polling, best version, image caching, `edition.json` + item files in OneDrive with "summary pending" | see items appear in OneDrive within minutes | next |
 | M5 | **Stage B, Gemma:** idle gating, enrichment with validation and retry, Instruction rules, filing from `_Sorting`, first-cut ranking, retention pruning, `status.json` | see summaries and sections fill in while you're away | |
 | M6 | **Reader PWA:** React reader replacing the sign-in spike: Front Page, section tabs, item cards, full article view, offline cache | read the Broadsheet on your iPhone | |
 | M7 | **Running on its own:** launchd LaunchAgent at background priority every 15 minutes, logs, install/uninstall commands | forget about it | |

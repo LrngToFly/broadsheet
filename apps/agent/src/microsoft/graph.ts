@@ -68,11 +68,11 @@ export class Graph {
   }
 
   /** Follows @odata.nextLink and returns every item. */
-  async all<T = any>(path: string): Promise<T[]> {
+  async all<T = any>(path: string, headers?: Record<string, string>): Promise<T[]> {
     const out: T[] = [];
     let next: string | undefined = path;
     while (next) {
-      const page: { value: T[]; "@odata.nextLink"?: string } = await this.call(next);
+      const page: { value: T[]; "@odata.nextLink"?: string } = await this.call(next, { headers });
       out.push(...page.value);
       next = page["@odata.nextLink"];
     }

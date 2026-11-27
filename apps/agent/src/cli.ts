@@ -23,7 +23,7 @@ import { stageAFeeds } from "./pipeline/stage-a-feeds.ts";
 import { discoverFeed } from "./feeds/feed.ts";
 import { stageB } from "./pipeline/stage-b.ts";
 import { learn } from "./pipeline/affinity.ts";
-import { currentProfile, profileNotDue, rebuildProfile } from "./ai/profile.ts";
+import { currentProfile, profileNotDue, rebuildProfile, scoringProfile } from "./ai/profile.ts";
 import { applyActions, applyReaderActions } from "./pipeline/reader-actions.ts";
 import { buildRulesFile } from "./pipeline/rules.ts";
 import { parseExactRule, saveExactRule, testRule } from "./pipeline/rule-editor.ts";
@@ -912,7 +912,8 @@ async function evalCmd(sub: string | undefined, o: { count?: number; model?: str
     const ctx = {
       sections,
       instructionRules: (db.prepare("SELECT id, instruction, source_id FROM rules WHERE kind = 'instruction' AND status = 'active'").all() as any[]).map((r) => ({ id: r.id, instruction: r.instruction, sourceId: r.source_id })),
-      readerProfile: currentProfile(db, config).text,
+      // The test set's own items are left out of the rating examples, or a rated item would be scored from its own rating.
+      readerProfile: scoringProfile(db, config, { exclude: set.cases.map((c) => c.id) }),
       numCtx: config.ai.numCtx,
     };
     const fp = await fingerprint(set, p.eval, ctx);

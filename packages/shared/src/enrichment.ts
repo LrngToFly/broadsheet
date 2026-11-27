@@ -10,8 +10,9 @@ export function enrichmentSchema(sectionIds: readonly [string, ...string[]], ins
       key_points: z.array(z.string().min(1)).max(5),
       section: z.enum(sectionIds).describe("the single best section"),
       tags: z.array(z.string().min(1).max(40)).max(6),
-      interest: z.number().int().min(0).max(100).describe("how likely this reader wants to read it"),
-      why_its_here: z.string().min(1).max(200).describe("one short line explaining the interest score to the reader"),
+      // why_its_here comes before interest: deciding the reason first gives better-spread scores.
+      why_its_here: z.string().min(1).max(200).describe("one short line explaining to the reader why it would or wouldn't interest them"),
+      interest: z.number().int().min(0).max(100).describe("how likely this reader wants to read it, matching why_its_here"),
       read_minutes: z.number().int().min(1).max(120),
       hidden_by_rule: (instructionRuleIds.length
         ? z.enum(instructionRuleIds as [string, ...string[]]).nullable()

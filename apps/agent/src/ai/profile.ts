@@ -47,6 +47,46 @@ export function currentProfile(db: Db, config: Pick<Config, "readerProfile">): P
   return own ? { text: own, from: "yours", own } : { text: "", from: "none", own };
 }
 
+/** How to use the 0-100 interest scale, for every prompt that scores (enrichment and re-scoring). */
+export const SCORING_GUIDE = [
+  `Score interest (0-100) for THIS reader, from what they've said and rated, not by how important the news is in general. Use the whole range:`,
+  `- 90-100: a must-read for them (rare, about 1 item in 10)`,
+  `- 70-89: clearly their kind of article`,
+  `- 40-69: might interest them`,
+  `- 15-39: probably not for them`,
+  `- 0-14: not for them at all`,
+  `Don't default to a high score: most items land between 30 and 75. Decide why_its_here first, then the score that matches it.`,
+].join("\n");
+
+/** The reader's recent ratings (and hides) as examples, with their reasons. Items in `exclude` are left out. */
+export function ratingExamples(db: Db, opts: { limit?: number; exclude?: Iterable<string> } = {}): string {
+  const exclude = new Set(opts.exclude ?? []);
+  const sourceName = new Map((db.prepare("SELECT id, coalesce(display_name, id) AS name FROM sources").all() as { id: string; name: string }[]).map((s) => [s.id, s.name]));
+  const rows = (db
+    .prepare(
+      `SELECT item_id, source_id, title, rating, rating_note, hidden_reason, hidden_note FROM preference_records
+       WHERE rating IS NOT NULL OR hidden_reason IS NOT NULL OR hidden_note IS NOT NULL ORDER BY updated_at DESC`,
+    )
+    .all() as any[]).filter((r) => !exclude.has(r.item_id)).slice(0, opts.limit ?? 12);
+  if (!rows.length) return "";
+  const mark = (r: any) => (r.rating === 1 ? "👍 liked" : r.rating === 0 ? "👌 fine" : r.rating === -1 ? "👎 disliked" : "🚫 hid");
+  const lines = rows.map((r) => {
+    const why = r.rating_note ?? r.hidden_note ?? (r.hidden_reason ? `hidden: ${r.hidden_reason}` : null);
+    return `- ${mark(r)}: "${r.title}" (${sourceName.get(r.source_id) ?? r.source_id})${why ? `. Why: ${why}` : ""}`;
+  });
+  return [`Articles they rated recently. Score similar articles the same way, but where they gave a reason, the reason matters more than the subject:`, ...lines].join("\n");
+}
+
+/**
+ * Everything Gemma gets about the reader when scoring: your words and the learned profile (if any), then your recent
+ * ratings as examples, so scoring is personal from the first rating (not only once a profile is written).
+ */
+export function scoringProfile(db: Db, config: Pick<Config, "readerProfile">, opts: { exclude?: Iterable<string> } = {}): string {
+  const profile = currentProfile(db, config).text;
+  const examples = ratingExamples(db, { exclude: opts.exclude });
+  return [profile, examples].filter(Boolean).join("\n\n");
+}
+
 const ratedCount = (db: Db) => (db.prepare("SELECT count(*) n FROM preference_records WHERE rating IS NOT NULL").get() as { n: number }).n;
 
 /** Is a new profile due? Returns why not, or null if it is. */

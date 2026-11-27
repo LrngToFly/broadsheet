@@ -9,6 +9,7 @@ import { CheckRule, InstructionRule, type Condition } from "@broadsheet/shared";
 import type { Db } from "../db/db.ts";
 import { conditionMatches, type EmailFacts } from "../pipeline/classify.ts";
 import { extractJson } from "./enrich.ts";
+import { SCORING_GUIDE } from "./profile.ts";
 import type { LlmProvider } from "./provider.ts";
 
 export const MAX_DRAFT_ATTEMPTS = 3;
@@ -267,11 +268,13 @@ export async function rescoreOne(
     {
       role: "system",
       content: [
-        `You are the editor of "The Broadsheet", a private newspaper. Score how interesting this item is to the reader, 0-100, and say why in one short line.`,
-        `Reply with ONLY a JSON object: {"interest": <0-100>, "why_its_here": "..."}`,
+        `You are the editor of "The Broadsheet", a private newspaper. Say in one short line why this item would or wouldn't interest the reader, then score it.`,
+        `Reply with ONLY a JSON object: {"why_its_here": "...", "interest": <0-100>}`,
+        ``,
+        SCORING_GUIDE,
         ``,
         `The reader:`,
-        readerProfile || `No description yet. Prefers substantive writing over promotion.`,
+        readerProfile || `No description or ratings yet. Score on substance: original reporting and analysis high, thin or promotional posts low.`,
       ].join("\n"),
     },
     {

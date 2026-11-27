@@ -12,7 +12,7 @@ import type { LlmProvider } from "../ai/provider.ts";
 import { enrich } from "../ai/enrich.ts";
 import type { MailPort } from "./stage-a-email.ts";
 import { learn } from "./affinity.ts";
-import { currentProfile } from "../ai/profile.ts";
+import { scoringProfile } from "../ai/profile.ts";
 import { draftOne, pendingRequests, rescoreOne } from "../ai/rule-draft.ts";
 import { formatOf, splitItem } from "./split.ts";
 import { FALLBACK_SECTION_ID } from "@broadsheet/shared";
@@ -71,7 +71,7 @@ export async function stageB(opts: {
   const sortingId = (db.prepare("SELECT value FROM agent_state WHERE key = 'folder:_sorting'").get() as { value: string } | undefined)?.value;
   const wasLoaded = await llm.isLoaded().catch(() => false);
   const learned = learn(db); // for section hints from your moves
-  const readerProfile = currentProfile(db, config).text;
+  const readerProfile = scoringProfile(db, config); // your words, the learned profile, and your recent ratings
 
   const items = db
     .prepare(

@@ -4,6 +4,7 @@
 import { z } from "zod";
 import { enrichmentJsonSchema, enrichmentSchema, FALLBACK_SECTION_ID, type Enrichment } from "@broadsheet/shared";
 import type { ChatMessage, LlmProvider } from "./provider.ts";
+import { SCORING_GUIDE } from "./profile.ts";
 
 export type EnrichInput = {
   title: string;
@@ -55,8 +56,11 @@ export function buildMessages(item: EnrichInput, ctx: EnrichContext): { messages
       ? [`The reader has these rules. If the item clearly breaks one, set hidden_by_rule to its id; otherwise null:`, ...rules.map((r) => `- ${r.id}: ${r.instruction}`)].join("\n")
       : `Set hidden_by_rule to null.`,
     ``,
-    `Score interest (0-100) for this reader:`,
-    ctx.readerProfile.trim() || `The reader follows these sections: ${ctx.sections.map((s) => s.name).join(", ")}. Prefers substantive writing over promotion.`,
+    SCORING_GUIDE,
+    ``,
+    `The reader:`,
+    ctx.readerProfile.trim() ||
+      `No description or ratings yet. They follow these sections: ${ctx.sections.map((s) => s.name).join(", ")}. Score on substance: original reporting and analysis high, thin or promotional posts low.`,
   ].join("\n");
 
   const user = [

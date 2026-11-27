@@ -274,4 +274,31 @@ export const migrations: string[] = [
     INSERT OR IGNORE INTO source_posts (item_id, source_id, published_at) VALUES (NEW.id, NEW.source_id, NEW.published_at);
   END;
   `,
+
+  /* 10: the mail log, for testing rules against recent mail (Phase 3 A4) and the skipped-mail list (A6) */ `
+  -- One row per email Stage A looked at, kept 90 days: who sent it, its subject, list, length and links, and what was
+  -- decided. No article text (rules on body text are tested against the current items only).
+  CREATE TABLE mail_log (
+    message_key     TEXT PRIMARY KEY,     -- the RFC 5322 Message-ID
+    message_id      TEXT,                 -- Graph's id, to find the email again
+    received_at     TEXT NOT NULL,
+    sender          TEXT NOT NULL,
+    sender_name     TEXT,
+    subject         TEXT NOT NULL,
+    list_id         TEXT,
+    word_count      INTEGER NOT NULL DEFAULT 0,
+    links_json      TEXT NOT NULL DEFAULT '[]',
+    source_id       TEXT,
+    decision        TEXT NOT NULL CHECK (decision IN ('include', 'skip', 'hide')),
+    why             TEXT,
+    rule_id         TEXT,
+    item_id         TEXT
+  ) STRICT;
+  CREATE INDEX mail_log_received ON mail_log(received_at);
+  INSERT OR IGNORE INTO mail_log (message_key, message_id, received_at, sender, subject, list_id, word_count, source_id, decision, why, rule_id, item_id)
+    SELECT coalesce(internet_message_id, id), message_id, published_at, coalesce(sender, ''), title, list_id, word_count, source_id,
+           CASE WHEN hidden_by IS NOT NULL AND hidden_by != 'user' AND ai_status = 'skipped' THEN 'hide' ELSE 'include' END,
+           NULL, CASE WHEN ai_status = 'skipped' THEN hidden_by END, id
+    FROM items WHERE channel = 'email' AND parent_id IS NULL;
+  `,
 ];

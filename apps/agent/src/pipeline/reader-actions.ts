@@ -56,7 +56,22 @@ export async function applyReaderActions(opts: { db: Db; appFolder: ActionsPort;
     done.push(name);
   }
   result.files = names.length;
-  actions.sort((a, b) => a.at.localeCompare(b.at)); // several devices: the latest action wins
+  const applied = await applyActions({ db, mail, actions, contentDir: opts.contentDir, now: opts.now });
+  result.applied = applied.applied;
+  result.ignored = applied.ignored;
+  result.errors.push(...applied.errors);
+
+  // Delete the files only after everything in them is applied.
+  for (const name of done) await appFolder.delete(`${FOLDER}/${name}`);
+  return result;
+}
+
+/** Apply actions, whether from the reader's files or from Admin (`broadsheet act`). The latest action wins. */
+export async function applyActions(opts: { db: Db; mail: MailPort; actions: ReaderAction[]; contentDir?: string; now?: Date }): Promise<Omit<ActionsResult, "files">> {
+  const { db, mail } = opts;
+  const now = (opts.now ?? new Date()).toISOString();
+  const result = { applied: 0, ignored: 0, errors: [] as string[] };
+  const actions = [...opts.actions].sort((a, b) => a.at.localeCompare(b.at)); // several devices: the latest action wins
 
   const sections = new Map((db.prepare("SELECT id, mail_folder_id FROM sections").all() as { id: string; mail_folder_id: string | null }[]).map((s) => [s.id, s.mail_folder_id]));
   const sortingId = (db.prepare("SELECT value FROM agent_state WHERE key = 'folder:_sorting'").get() as { value: string } | undefined)?.value;
@@ -158,9 +173,6 @@ export async function applyReaderActions(opts: { db: Db; appFolder: ActionsPort;
     }
     result.applied++;
   }
-
-  // Delete the files only after everything in them is applied.
-  for (const name of done) await appFolder.delete(`${FOLDER}/${name}`);
   return result;
 }
 

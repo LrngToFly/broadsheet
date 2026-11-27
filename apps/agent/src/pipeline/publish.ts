@@ -204,8 +204,8 @@ export function sameStoryOnce(cards: ItemCard[], extra: Map<string, { links: str
   return out;
 }
 
-/** What was left out of the paper in the same window, and why, for the reader's Hidden list. */
-function hiddenCards(db: Db, cutoff: string): HiddenCard[] {
+/** What was left out of the paper in the same window, and why, for the reader's Hidden list (and Admin's). */
+export function hiddenCards(db: Db, cutoff: string): HiddenCard[] {
   const rows = db
     .prepare(
       `SELECT i.id, i.title, i.author, i.published_at, i.url, i.hidden_by, i.hidden_reason, i.hidden_note, coalesce(s.display_name, s.id) AS source_name, r.wording
@@ -272,6 +272,7 @@ async function prune(db: Db, appFolder: AppFolderPort, contentDir: string, cutof
   const day = 24 * 3600 * 1000;
   db.prepare("DELETE FROM seen WHERE first_seen_at < ?").run(new Date(now.getTime() - 90 * day).toISOString());
   db.prepare("DELETE FROM source_posts WHERE published_at < ?").run(new Date(now.getTime() - 90 * day).toISOString());
+  db.prepare("DELETE FROM mail_log WHERE received_at < ?").run(new Date(now.getTime() - 90 * day).toISOString());
   db.prepare("DELETE FROM runs WHERE started_at < ?").run(new Date(now.getTime() - 14 * day).toISOString());
   // Rules: "hid N in the last 30 days" needs only 30 days; finished drafting requests a month; and the article
   // text copied for a draft lasts no longer than the article itself.

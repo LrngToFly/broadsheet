@@ -7,7 +7,7 @@ Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): you manage everything
 | A1 | **The app and the menu bar:** a menu-bar item showing what the agent is doing (**Idle**, **Waiting — you're active**, **Working (3 of 12)**, **Paused**), the last run, the backlog and errors; **Run now** and **Pause for 1 hour / until tomorrow**; an Admin window with a Status page and the log viewer. Built from the command line into `~/Applications/Broadsheet Admin.app` | see and control the agent without Terminal | built |
 | A2 | **Sources:** one list (email and feeds) with latest post date, posts in the last 30 days and average rating; rename, fixed section, mute, format (normal, roundup, multi-section) and roundup suggestions; sources silent for a long time highlighted with **Disable**. The database becomes the master copy for sources | manage your newsletters | built |
 | A3 | **Sections and folders:** add, rename, reorder or remove sections, with a preview of each Outlook folder change before it's applied | change the paper's sections | built |
-| A4 | **Rules and your words:** the reader's Rules page and Hidden list in Admin, plus the full condition editor for Check and include rules with **Test against recent mail** | edit rules precisely | |
+| A4 | **Rules and your words:** the reader's Rules page and Hidden list in Admin, plus the full condition editor for Check and include rules with **Test against recent mail** | edit rules precisely | built |
 | A5 | **Following and feeds:** **Follow by URL** with a preview, **Switch to feed**, best version (email, feed or web page), staleness, and the unsubscribe helper | follow authors without email | |
 | A6 | **Email:** mailbox mode, New sources, skipped mail with **Include this one**, and emails dropped into `_Add` | catch what was missed | |
 | A7 | **Data, AI and politeness:** export / import, **Forget** ratings, storage sizes; the Ollama model and context size; **Run eval**; idle threshold, limits, backlog behaviour, overnight window | tune it all in one place | |
@@ -17,6 +17,7 @@ Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): you manage everything
 The agent (TypeScript, run by launchd every 15 minutes) already does everything that touches Microsoft, Ollama or the rules: sign-in, Graph, folders, Gemma, validation. Admin shouldn't do any of that a second time in Swift. So:
 
 - **Admin reads the database directly**, read-only, through SQLite's own C library built into macOS (`import SQLite3`, a small wrapper, no extra packages to download). Reading is safe while the agent runs, because the database is in WAL mode. Plain SQL tables are the contract, as planned ([PLAN.md §2](../PLAN.md)).
+- **For views the agent already builds for the reader** (the Rules page, the Hidden list), Admin asks the agent for the same JSON (`broadsheet rules --json`, `broadsheet hidden --json`) rather than repeating that logic in Swift.
 - **Admin changes things by running the agent's command line,** e.g. `broadsheet pause --for 1h` or `broadsheet format <id> roundup`, with `--json` output where Admin needs an answer. Every change goes through the same code and checks as the reader's and Terminal's, and only one program ever writes the database.
 - **Where's the agent?** Admin reads it from the launchd job the agent installed (`~/Library/LaunchAgents/com.thebroadsheet.agent.plist`), which names both Node and the agent's `cli.ts`. If the job isn't installed, Admin says so.
 - **Live progress:** during Gemma's work the agent writes `progress.json` (item n of N and its title) next to the database, and deletes it when it stops. Admin checks it, the run lock and the database every few seconds.
@@ -61,4 +62,12 @@ The script compiles the package in release mode with Xcode's tools, wraps the pr
 - **One change at a time:** each change is made in Outlook first, then in the database. If Outlook fails, it stops there; what was done stays done, and applying the same list again finishes the rest.
 - **The database is now the master copy for sections** too: the config file's list is copied in only when it changes.
 - **From Terminal:** `broadsheet sections` lists them; `broadsheet sections set '[{"id":"technology","name":"Tech"},{"name":"Cooking"}]' --dry-run` previews (drop `--dry-run` to apply). An entry with no id is a new section.
+
+## A4: Rules, your words and the Hidden list
+
+- **The Rules page** has what the reader's has: **In your own words** (with what Gemma has learned from your ratings), **Suggestions** to approve or dismiss, **Your rules** to turn on or off, edit or delete, and **Add a rule** in plain English for Gemma to draft.
+- **Exact rules** (**New exact rule…**, or **Edit** on one): a few words on what it's for; whether matching email is **hidden** (to Deleted Items, or left in the Inbox) or **always included** (into a section); one newsletter or all; and conditions on the sender, domain, subject, list, text, links or length, all of which must match or any one. **Test** shows which emails of the last 90 days it would have caught; **Save** can also hide the current articles it catches.
+- **The mail log** makes testing possible: for every email the agent looks at, it keeps the sender, subject, list, length, links and what it decided, for 90 days, but not the text. So a condition on the text can only be tested against the last 4 days, and the test says how many it couldn't check. (Skipped mail is logged from 2026-11-27 on; A6's skipped-mail list will use it too.)
+- **The Hidden page** lists what was left out of the paper and why, with **Show it again**.
+- **From Terminal:** `broadsheet rules`, `broadsheet hidden`, `broadsheet rule test|save '<json>'`, and `broadsheet act '<json>'`, which applies the same actions the reader sends (your words, approving, hiding, showing again…).
 

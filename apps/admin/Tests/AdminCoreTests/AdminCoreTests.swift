@@ -161,3 +161,42 @@ import Testing
         #expect(SectionsResult.parse("Error: no") == nil)
     }
 }
+
+@Suite struct RulesTests {
+    @Test func readsTheAgentsRulesView() throws {
+        let json = #"""
+        {"schemaVersion":1,"generatedAt":"2026-11-27T12:00:00.000Z","ownWords":{"text":"Less spectacle.","updatedAt":null},"learnedProfile":null,
+         "suggestions":[{"id":"request-3","status":"drafting","from":{"kind":"typed","text":"No crypto"},"wording":null,"ruleKind":null,"detail":null,"source":null,"wouldHide":[],"error":null}],
+         "rules":[{"id":"no-live","wording":"No live video","kind":"check","detail":"subject contains \"live\"","source":"TV","status":"off","mail":"deleted-items","hits30d":2,"redrafting":false}],
+         "exact":{"no-live":{"id":"no-live","kind":"check","wording":"No live video","match":"all","conditions":[{"field":"subject","op":"contains","value":"live"},{"field":"wordCount","op":"lessThan","value":150}],"source":"tv","mail":"deleted-items","status":"off"}}}
+        """#
+        let d = try #require(decodeAnswer(RulesData.self, from: "noise\n" + json.replacingOccurrences(of: "\n", with: "")))
+        #expect(d.ownWords.text == "Less spectacle.")
+        #expect(d.suggestions.first?.fromText == "You typed: “No crypto”")
+        #expect(d.rules.first?.on == false)
+        let exact = try #require(d.exact["no-live"])
+        #expect(exact.conditions.map(\.value) == ["live", "150"])
+        #expect(exact.source == "tv")
+    }
+
+    @Test func writesTheRuleTheAgentExpects() {
+        var r = ExactRule(wording: "No live video", conditions: [ConditionDraft(field: .subject, op: "contains", value: "live"), ConditionDraft(field: .wordCount, op: "lessThan", value: "150")], section: "gardening")
+        #expect(r.problem == nil)
+        #expect(r.json() == #"{"conditions":[{"field":"subject","op":"contains","value":"live"},{"field":"wordCount","op":"lessThan","value":150}],"kind":"check","mail":"deleted-items","match":"all","status":"active","wording":"No live video"}"#)
+        r.kind = "include"
+        #expect(r.json().contains(#""section":"gardening""#) && !r.json().contains("mail"))
+        r.conditions[1].value = "lots"
+        #expect(r.problem == "The length needs a whole number of words.")
+        r.conditions = [ConditionDraft(field: .subject, op: "matches", value: "(")]
+        #expect(r.problem == "“(” isn't a valid regular expression.")
+        r.wording = " "
+        #expect(r.problem == "Say what the rule is for, in a few words.")
+    }
+
+    @Test func readsHiddenCardsAndActions() {
+        let hidden = decodeAnswer([HiddenCard].self, from: #"[{"id":"a","title":"Sale!","source":"Shop","author":null,"publishedAt":"2026-11-27T10:00:00Z","url":null,"why":{"kind":"you","reason":"ad","note":"never"}}]"#)
+        #expect(hidden?.first?.whyText == "You hid this (ad): “never”")
+        #expect(actArgument([["type": "unhide", "itemId": "a"]]) == #"[{"itemId":"a","type":"unhide"}]"#)
+        #expect(decodeAnswer(ActResult.self, from: #"{"applied":1,"ignored":0,"errors":[]}"#) == ActResult(applied: 1, ignored: 0, errors: []))
+    }
+}

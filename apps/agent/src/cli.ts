@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Config } from "@broadsheet/shared";
+import { z } from "zod";
 import { paths } from "./paths.ts";
 import { ConfigError, loadConfig } from "./config.ts";
 import { openDb, schemaVersion, syncConfig, type Db } from "./db/db.ts";
@@ -17,20 +18,22 @@ import { AppFolder } from "./microsoft/onedrive.ts";
 import { aiMayRun, sampleActivity } from "./activity.ts";
 import { Mail } from "./microsoft/mail.ts";
 import { stageAEmail, type EmailOutcome } from "./pipeline/stage-a-email.ts";
-import { publish } from "./pipeline/publish.ts";
+import { hiddenCards, publish } from "./pipeline/publish.ts";
 import { stageAFeeds } from "./pipeline/stage-a-feeds.ts";
 import { discoverFeed } from "./feeds/feed.ts";
 import { stageB } from "./pipeline/stage-b.ts";
 import { learn } from "./pipeline/affinity.ts";
 import { currentProfile, profileNotDue, rebuildProfile } from "./ai/profile.ts";
-import { applyReaderActions } from "./pipeline/reader-actions.ts";
+import { applyActions, applyReaderActions } from "./pipeline/reader-actions.ts";
+import { buildRulesFile } from "./pipeline/rules.ts";
+import { parseExactRule, saveExactRule, testRule } from "./pipeline/rule-editor.ts";
 import { setFormat } from "./pipeline/split.ts";
 import { parsePause, pausedUntil, setPause } from "./pause.ts";
 import { editSource, type SourceChanges } from "./pipeline/sources.ts";
 import { looksLikeRoundup } from "./content/split.ts";
 import { clearEval, loadSet, reportHtml, runModel, saveSet, savedRun, fingerprint, type EvalRun } from "./ai/eval.ts";
 import { execFile } from "node:child_process";
-import { SourceFormat } from "@broadsheet/shared";
+import { ReaderAction, SourceFormat } from "@broadsheet/shared";
 import { OllamaProvider, ollamaStatus } from "./ai/ollama.ts";
 import { acquireLock, keepAwakeWhileRunning, LOG_FILE, rotateLogs } from "./housekeeping.ts";
 import * as launchd from "./launchd.ts";
@@ -586,6 +589,90 @@ async function sections(sub: string | undefined, listJson: string | undefined) {
   });
 }
 
+// ---- Rules, your words and the Hidden list from Admin (docs/phase-3.md A4) --------------------------------
+
+const cutoffOf = (config: Config, now = new Date()) => new Date(now.getTime() - config.retention.days * 86_400_000).toISOString();
+const parseJsonArg = (text: string | undefined, usage: string): unknown => {
+  try {
+    return JSON.parse(text ?? "");
+  } catch {
+    throw new Error(usage);
+  }
+};
+
+/** Apply reader-style actions from Admin: your own words, rule changes, hides and un-hides, ratings… */
+async function act(listJson: string | undefined) {
+  const usage = `Usage: broadsheet act '[{"type":"own-words","text":"…"}]'   (the same actions the reader sends)`;
+  const raw = parseJsonArg(listJson, usage);
+  if (!Array.isArray(raw)) throw new Error(usage);
+  const at = new Date().toISOString();
+  const actions = raw.map((a, i) => {
+    const r = ReaderAction.safeParse({ at, ...(a as object) });
+    if (!r.success) throw new Error(`Action ${i + 1}: ${z.prettifyError(r.error)}`);
+    return r.data;
+  });
+  await withConfigAndDb(async (config, db) => {
+    const r = await applyActions({ db, mail: new Mail(services(config).graph), actions, contentDir: p.content });
+    if (has("json")) console.log(JSON.stringify(r));
+    else console.log(`${r.applied} applied${r.ignored ? `, ${r.ignored} had nothing to apply to` : ""}.${r.errors.map((e) => `\n  ❌ ${e}`).join("")}`);
+    if (r.errors.length) process.exitCode = 1;
+  });
+}
+
+/** Your words, suggestions and rules: the reader's Rules page, plus each exact rule's conditions for Admin's editor. */
+async function rules() {
+  await withConfigAndDb(async (config, db) => {
+    const file = buildRulesFile(db, config, new Date());
+    const exact = Object.fromEntries(
+      (db.prepare("SELECT * FROM rules WHERE kind IN ('check', 'include')").all() as any[]).map((r) => [
+        r.id,
+        { id: r.id, kind: r.kind, wording: r.wording, match: r.match_mode ?? "all", conditions: JSON.parse(r.conditions_json ?? "[]"), source: r.source_id ?? undefined, mail: r.mail_action ?? undefined, section: r.section_id ?? undefined, status: r.status === "off" ? "off" : "active" },
+      ]),
+    );
+    if (has("json")) {
+      console.log(JSON.stringify({ ...file, exact }));
+      return;
+    }
+    console.log(`YOUR WORDS\n  ${file.ownWords.text || "(none yet)"}\n`);
+    console.log(`SUGGESTIONS (${file.suggestions.length})`);
+    for (const s of file.suggestions) console.log(`  ${s.id}: ${s.wording ?? "(being drafted)"} [${s.status}]`);
+    console.log(`\nRULES (${file.rules.length})`);
+    for (const r of file.rules) console.log(`  ${r.status === "active" ? "on " : "off"}  ${r.id}: ${r.wording} — ${r.detail}${r.source ? ` (only ${r.source})` : ""}, hid ${r.hits30d} in 30 days`);
+  });
+}
+
+/** What was left out of the paper, and why. */
+async function hidden() {
+  await withConfigAndDb(async (config, db) => {
+    const cards = hiddenCards(db, cutoffOf(config));
+    if (has("json")) console.log(JSON.stringify(cards));
+    else for (const h of cards) console.log(`  ${h.id}  ${h.title.slice(0, 60)} (${h.source}) — ${h.why.kind === "rule" ? `rule: ${h.why.wording}` : h.why.kind === "you" ? `you hid it${h.why.reason ? ` (${h.why.reason})` : ""}` : "not an article"}`);
+  });
+}
+
+/** Test or save an exact rule (Admin's condition editor). */
+async function rule(sub: string | undefined, ruleJson: string | undefined) {
+  const usage = `Usage: broadsheet rule test|save '{"kind":"check","wording":"…","match":"all","conditions":[{"field":"subject","op":"contains","value":"…"}]}' [--days 90] [--hide-current] [--json]`;
+  if (sub !== "test" && sub !== "save") throw new Error(usage);
+  const input = parseJsonArg(ruleJson, usage);
+  await withConfigAndDb(async (config, db) => {
+    const r = parseExactRule(db, input);
+    if (sub === "test") {
+      const days = Math.min(90, Math.max(1, Number(flag("days") ?? 90)));
+      const t = await testRule(db, p.content, r, { now: new Date(), days });
+      if (has("json")) console.log(JSON.stringify(t));
+      else {
+        console.log(`It would have caught ${t.matched.length} of the ${t.checked} emails of the last ${t.days} days${t.unknown ? ` (${t.unknown} couldn't be checked: their text is gone)` : ""}:`);
+        for (const m of t.matched) console.log(`  ${m.receivedAt.slice(0, 10)}  ${m.subject.slice(0, 70)}  (${m.sender})`);
+      }
+      return;
+    }
+    const saved = await saveExactRule(db, new Mail(services(config).graph), r, { contentDir: p.content, cutoff: cutoffOf(config), now: new Date().toISOString(), hideCurrent: has("hide-current") });
+    if (has("json")) console.log(JSON.stringify(saved));
+    else console.log(`${saved.created ? "Added" : "Saved"} the rule "${saved.id}".${saved.hid ? ` It hid ${saved.hid} current article(s).` : ""} New mail is checked against it from the next run.`);
+  });
+}
+
 /** Pause scheduled runs (Admin's menu bar does the same). */
 async function pause(arg: string | undefined) {
   if (!arg) throw new Error("Usage: broadsheet pause 30m|1h|tomorrow|off");
@@ -714,6 +801,18 @@ try {
     case "format":
       await format(args[0], args[1]);
       break;
+    case "act":
+      await act(args[0]);
+      break;
+    case "rules":
+      await rules();
+      break;
+    case "hidden":
+      await hidden();
+      break;
+    case "rule":
+      await rule(args[0], args[1]);
+      break;
     case "sections":
       await sections(args[0]?.startsWith("--") ? undefined : args[0], args[1]);
       break;
@@ -780,6 +879,11 @@ try {
   eval clear                delete the test set, runs and pages
   profile [--rebuild]       what your ratings taught it, and the reader profile Gemma uses
                             (--rebuild: have Gemma rewrite the profile now)
+  rules [--json]            your words, suggestions and rules (as on the reader's Rules page)
+  rule test|save '<json>'   test an exact rule against the last 90 days of mail, or save it
+                            (--hide-current also hides the current articles it catches)
+  hidden [--json]           what was left out of the paper, and why
+  act '<json>'              apply actions like the reader's, e.g. [{"type":"unhide","itemId":"…"}]
   sections                  the paper's sections, in order
   sections set '<json>' [--dry-run]
                             change them (add, rename, reorder, remove) with their Outlook

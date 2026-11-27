@@ -7,7 +7,7 @@ import type { Config } from "@broadsheet/shared";
 import type { Db } from "../db/db.ts";
 import { transaction } from "../db/db.ts";
 import { parseEmail, platformOf } from "../content/email.ts";
-import { cleanArticle } from "../content/clean.ts";
+import { cleanArticle, stripTracking } from "../content/clean.ts";
 import type { Mail, MessageSummary } from "../microsoft/mail.ts";
 import { afterFiling } from "./split.ts";
 import { classify, matchSource, newSourceFor, splitSenderName, type Decision, type RuleRow, type SourceRow } from "./classify.ts";
@@ -174,6 +174,15 @@ export async function stageAEmail(opts: {
           if (decision.action === "hide") db.prepare("INSERT OR IGNORE INTO rule_hits (rule_id, item_id, at) VALUES (?, ?, ?)").run(decision.ruleId, itemId, nowIso);
         }
         db.prepare("INSERT OR IGNORE INTO seen (key, first_seen_at) VALUES (?, ?)").run(seenKey(email.messageId), nowIso);
+        // The mail log (90 days): for testing rules against recent mail, and the skipped-mail list.
+        db.prepare(
+          `INSERT OR REPLACE INTO mail_log (message_key, message_id, received_at, sender, sender_name, subject, list_id, word_count, links_json, source_id, decision, why, rule_id, item_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          email.messageId, m.id, m.receivedDateTime, facts.sender, facts.senderName || null, facts.subject, facts.listId, facts.wordCount,
+          JSON.stringify([...new Set(facts.links.map(stripTracking))].slice(0, 50)), decision.action === "skip" ? null : source.id,
+          decision.action, decision.why, decision.action === "hide" ? decision.ruleId : null, keep ? itemId : null,
+        );
       });
 
       const dir = join(opts.contentDir, itemId);
@@ -191,6 +200,7 @@ export async function stageAEmail(opts: {
         transaction(db, () => {
           db.prepare("DELETE FROM items WHERE id = ?").run(itemId);
           db.prepare("DELETE FROM seen WHERE key = ?").run(seenKey(email.messageId));
+          db.prepare("DELETE FROM mail_log WHERE message_key = ?").run(email.messageId);
           if (created) db.prepare("DELETE FROM sources WHERE id = ?").run(created.id);
         });
         await rm(dir, { recursive: true, force: true });

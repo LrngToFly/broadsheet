@@ -83,7 +83,7 @@ async function ruleOp(db: Db, mail: MailPort, ruleId: string, op: "approve" | "d
 }
 
 /** On approval, the rule hides the current items its preview showed (not ones you saved or showed again). */
-async function hideWhatItCatches(db: Db, mail: MailPort, ruleId: string, mailAction: string | null, preview: { id: string }[], now: string) {
+export async function hideWhatItCatches(db: Db, mail: MailPort, ruleId: string, mailAction: string | null, preview: { id: string }[], now: string) {
   const ours = new Set<string | null>([
     ...(db.prepare("SELECT mail_folder_id FROM sections").all() as { mail_folder_id: string | null }[]).map((s) => s.mail_folder_id),
     getState(db, "folder:_sorting") ?? null,

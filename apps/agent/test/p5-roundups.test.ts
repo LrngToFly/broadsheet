@@ -126,6 +126,8 @@ describe("a roundup newsletter", () => {
     const parent = itemIdFor("<m1@x>");
     expect(a.outcomes[0]).toMatchObject({ pieces: 4, destination: "_Sorting" });
     expect(db.prepare("SELECT kind, ai_status FROM items WHERE id = ?").get(parent)).toEqual({ kind: "newsletter", ai_status: "skipped" });
+    // The mail log keeps the email's facts (not its text) for 90 days, for testing rules (A4).
+    expect(db.prepare("SELECT sender, subject, decision, item_id, source_id FROM mail_log").get()).toEqual({ sender: "daily@roundup.example", subject: "The Daily Roundup", decision: "include", item_id: parent, source_id: "roundup" });
     expect(db.prepare("SELECT id, kind, ai_status, message_id FROM items WHERE parent_id = ? ORDER BY piece").all(parent)).toEqual(
       [1, 2, 3, 4].map((n) => ({ id: `${parent}-${n}`, kind: "brief", ai_status: "pending", message_id: null })),
     );

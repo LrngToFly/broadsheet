@@ -197,6 +197,9 @@ importers:
 
   apps/agent:
     dependencies:
+      '@azure/msal-node':
+        specifier: ^7.2.3
+        version: 7.2.3
       '@broadsheet/shared':
         specifier: workspace:*
         version: link:../../packages/shared

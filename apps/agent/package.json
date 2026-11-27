@@ -11,6 +11,7 @@
     "broadsheet": "node src/cli.ts"
   },
   "dependencies": {
+    "@azure/msal-node": "^7.2.3",
     "@broadsheet/shared": "workspace:*",
     "zod": "^4.6.7"
   }

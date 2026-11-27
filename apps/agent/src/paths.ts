@@ -8,6 +8,8 @@ export function paths(env: NodeJS.ProcessEnv = process.env) {
     home,
     config: join(home, "broadsheet.config.json"),
     db: join(home, "broadsheet.db"),
+    /** Microsoft sign-in tokens, encrypted with a key kept in the Keychain. */
+    tokenCache: join(home, "msal-cache.bin"),
     /** Cleaned article HTML and images while an item is current (PLAN.md §7.2). */
     content: join(home, "content"),
     logs: env.BROADSHEET_LOGS ?? join(homedir(), "Library", "Logs", "Broadsheet"),

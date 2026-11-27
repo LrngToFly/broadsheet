@@ -1,0 +1,34 @@
+// The OneDrive App Folder ("Apps/The Broadsheet"), the only part of OneDrive this app can reach.
+import type { Graph } from "./graph.ts";
+
+const enc = (path: string) => path.split("/").map(encodeURIComponent).join("/");
+
+export class AppFolder {
+  private readonly graph: Graph;
+  constructor(graph: Graph) {
+    this.graph = graph;
+  }
+
+  /** Where the App Folder is, for messages. */
+  async info(): Promise<{ name: string; webUrl: string }> {
+    return this.graph.call("/me/drive/special/approot?$select=name,webUrl");
+  }
+
+  /** Upload a small file (under 4 MB) to a path inside the App Folder, replacing any existing one. */
+  async put(path: string, body: string | Uint8Array, contentType: string): Promise<{ id: string; size: number }> {
+    return this.graph.call(`/me/drive/special/approot:/${enc(path)}:/content`, {
+      method: "PUT",
+      body,
+      headers: { "Content-Type": contentType },
+    });
+  }
+
+  async putJson(path: string, value: unknown) {
+    return this.put(path, JSON.stringify(value), "application/json");
+  }
+
+  async getJson<T = unknown>(path: string): Promise<T> {
+    const res = await this.graph.call<Response>(`/me/drive/special/approot:/${enc(path)}:/content`, { raw: true });
+    return JSON.parse(await res.text()) as T;
+  }
+}

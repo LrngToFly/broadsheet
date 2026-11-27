@@ -92,6 +92,10 @@ describe("deciding what to do with an email", () => {
     expect(accountMailReason(facts({ sender: "account-security-noreply@accountprotection.microsoft.com" }))).not.toBeNull();
     expect(accountMailReason(facts({ subject: "ACTION REQUIRED - Confirm your referral to Tech Digest!", wordCount: 66 }))).not.toBeNull();
     expect(accountMailReason(facts({ subject: "Please confirm your subscription", wordCount: 80 }))).not.toBeNull();
+    for (const subject of ["You're in (Machine Notes)", "You’re subscribed to Garden Letter", "Almost there! Verify your email", "Your subscription is active"]) {
+      expect(accountMailReason(facts({ subject, wordCount: 120 })), subject).not.toBeNull();
+    }
+    expect(accountMailReason(facts({ subject: "You're in for a treat: 10 tomato varieties", wordCount: 1500 }))).toBeNull(); // a real, long post
     expect(accountMailReason(facts({ subject: "Receipt for your payment", wordCount: 2000 }))).toBeNull(); // long: probably an article
     expect(accountMailReason(facts())).toBeNull();
   });

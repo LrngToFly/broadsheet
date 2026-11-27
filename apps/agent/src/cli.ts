@@ -21,6 +21,8 @@ import { stageAFeeds } from "./pipeline/stage-a-feeds.ts";
 import { discoverFeed } from "./feeds/feed.ts";
 import { stageB } from "./pipeline/stage-b.ts";
 import { OllamaProvider, ollamaStatus } from "./ai/ollama.ts";
+import { acquireLock, keepAwakeWhileRunning, LOG_FILE, rotateLogs } from "./housekeeping.ts";
+import * as launchd from "./launchd.ts";
 
 const p = paths();
 const here = dirname(fileURLToPath(import.meta.url));
@@ -207,6 +209,14 @@ async function doctor(): Promise<boolean> {
     fail(`couldn't read activity: ${(e as Error).message}`);
   }
 
+  console.log("Schedule");
+  const job = await launchd.status();
+  if (job.loaded) ok(`runs every ${launchd.INTERVAL_SECONDS / 60} min in the background${job.running ? " (running now)" : ""}`);
+  else note("not scheduled yet (broadsheet install)");
+  const sleep = await launchd.systemSleepMinutes();
+  if (sleep === 0) ok("the Mac doesn't sleep when idle, so AI work can happen while you're away");
+  else if (sleep) fail(`the Mac sleeps after ${sleep} min idle, so AI work will rarely happen. System Settings → Energy → turn on "Prevent automatic sleeping when the display is off"`);
+
   console.log(healthy ? "\nAll checks passed." : "\nSome checks need attention (❌ above).");
   return healthy;
 }
@@ -225,6 +235,25 @@ async function run(opts: { stage?: string; dryRun: boolean; force: boolean; limi
   const { stage, dryRun } = opts;
   if (stage && stage !== "a" && stage !== "b") throw new Error(`Unknown stage "${stage}" (use a or b).`);
   if (dryRun && stage === "b") throw new Error("--dry-run is for stage a only.");
+
+  // Unattended runs: one at a time, tidy logs, a timestamp for the log, and no idle sleep mid-run.
+  const release = await acquireLock(join(p.home, "run.lock"));
+  if (!release) {
+    console.log(`${new Date().toISOString()} Another run is still working; skipping this one.`);
+    return;
+  }
+  try {
+    await rotateLogs(p.logs);
+    if (!dryRun) keepAwakeWhileRunning();
+    console.log(`=== ${new Date().toISOString()} run${stage ? ` --stage ${stage}` : ""}${dryRun ? " --dry-run" : ""}${opts.force ? " --force" : ""}`);
+    await runLocked(opts);
+  } finally {
+    await release();
+  }
+}
+
+async function runLocked(opts: { stage?: string; dryRun: boolean; force: boolean; limit?: number }) {
+  const { stage, dryRun } = opts;
   await withConfigAndDb(async (config, db) => {
     const { graph, appFolder } = services(config);
     const mail = new Mail(graph);
@@ -278,6 +307,29 @@ async function run(opts: { stage?: string; dryRun: boolean; force: boolean; limi
       started, new Date().toISOString(), stage ?? "ab", JSON.stringify(counts), deferred, JSON.stringify(errors), config.ai.model,
     );
     if (errors.length) process.exitCode = 1;
+  });
+}
+
+async function installSchedule() {
+  const cli = fileURLToPath(import.meta.url);
+  await launchd.install({ cli, workingDir: join(here, "..", "..", ".."), logFile: join(p.logs, LOG_FILE) });
+  console.log(`Installed. The agent now runs every ${launchd.INTERVAL_SECONDS / 60} minutes in the background.`);
+  console.log(`  Job:  ${launchd.PLIST}\n  Log:  ${join(p.logs, LOG_FILE)}\nStop it any time with: broadsheet uninstall`);
+  const sleep = await launchd.systemSleepMinutes();
+  if (sleep) console.log(`\n⚠️  Your Mac sleeps after ${sleep} min of inactivity, so AI work will rarely happen. In System Settings → Energy, turn on "Prevent automatic sleeping when the display is off".`);
+}
+
+async function scheduleStatus() {
+  const s = await launchd.status();
+  console.log(s.loaded ? `Scheduled: every ${launchd.INTERVAL_SECONDS / 60} min${s.running ? " (running right now)" : ""}; last exit code ${s.lastExit ?? "n/a"}` : s.installed ? "Installed but not loaded. Run: broadsheet install" : "Not scheduled. Run: broadsheet install");
+  await withConfigAndDb(async (_config, db) => {
+    const runs = db.prepare("SELECT started_at, stage, counts_json, deferred_reason, errors_json FROM runs ORDER BY id DESC LIMIT 5").all() as any[];
+    for (const r of runs) {
+      const errors = JSON.parse(r.errors_json).length;
+      console.log(`  ${new Date(r.started_at).toLocaleString()}  stage ${r.stage}  ${r.counts_json}${r.deferred_reason ? `  waiting: ${r.deferred_reason}` : ""}${errors ? `  ${errors} error(s)` : ""}`);
+    }
+    const pending = db.prepare("SELECT count(*) n FROM items WHERE ai_status = 'pending' AND hidden_by IS NULL").get() as { n: number };
+    console.log(`  ${pending.n} item(s) waiting for Gemma.`);
   });
 }
 
@@ -341,6 +393,15 @@ try {
     case "doctor":
       process.exitCode = (await doctor()) ? 0 : 1;
       break;
+    case "install":
+      await installSchedule();
+      break;
+    case "uninstall":
+      console.log((await launchd.uninstall()) ? "Removed the schedule. The agent no longer runs on its own." : "There was no schedule to remove.");
+      break;
+    case "status":
+      await scheduleStatus();
+      break;
     case "paths":
       console.log(p);
       break;
@@ -361,6 +422,9 @@ try {
   feed-check <url>          find a site's feed and preview it, without following it
   resummarize [--all]       have Gemma read again the items it dropped or failed on
                             (--all: every current item, e.g. after changing your profile)
+  install                   run the agent every 15 minutes in the background (launchd)
+  uninstall                 stop running it in the background
+  status                    is it scheduled, and what did the last runs do
   doctor                    check everything the agent needs
   paths                     show where the agent keeps its files`);
       if (cmd) process.exitCode = 1;

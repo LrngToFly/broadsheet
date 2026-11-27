@@ -4,3 +4,10 @@ packages:
   - spikes
 minimumReleaseAgeExclude:
   - '@types/node@26.6.11'
+
+# Security fixes for build-tool libraries (Dependabot alerts): workbox-build, used by vite-plugin-pwa
+# to generate the reader's service worker, still asks for glob 11 / minimatch 10. Remove these once
+# vite-plugin-pwa ships with fixed versions.
+overrides:
+  glob@>=9.0.0 <14.0.2: ^14.0.6
+  minimatch@>=7.0.0 <11.0.1: ^11.0.9

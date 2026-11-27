@@ -336,7 +336,7 @@ All AI work runs on the Mac mini with **Gemma 4 12B** (`gemma4:12b`, installed 2
 - Apple's on-device model,
 - the Claude API.
 
-**`broadsheet eval`:** runs the same 20 saved newsletters through a model (or two local models side by side, such as Gemma 4 12B against a newer release) and writes a local HTML page so you can judge the quality yourself before switching.
+**`broadsheet eval`:** runs the same 20 saved newsletters through a model (or two local models side by side, such as Gemma 4 12B against a newer release) and writes a local HTML page so you can judge the quality yourself before switching. The page puts each model's answers next to what the paper had and what you did (ratings, moves), with numbers for how well it ranks: the spread of its interest scores and how much higher it scores what you liked ([docs/phase-2.md](docs/phase-2.md#comparing-models-p6)).
 
 ---
 

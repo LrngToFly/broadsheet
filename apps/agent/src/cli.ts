@@ -25,6 +25,8 @@ import { currentProfile, profileNotDue, rebuildProfile } from "./ai/profile.ts";
 import { applyReaderActions } from "./pipeline/reader-actions.ts";
 import { setFormat } from "./pipeline/split.ts";
 import { looksLikeRoundup } from "./content/split.ts";
+import { clearEval, loadSet, reportHtml, runModel, saveSet, savedRun, fingerprint, type EvalRun } from "./ai/eval.ts";
+import { execFile } from "node:child_process";
 import { SourceFormat } from "@broadsheet/shared";
 import { OllamaProvider, ollamaStatus } from "./ai/ollama.ts";
 import { acquireLock, keepAwakeWhileRunning, LOG_FILE, rotateLogs } from "./housekeeping.ts";
@@ -474,6 +476,74 @@ async function format(sourceId: string | undefined, value: string | undefined) {
   });
 }
 
+/** Compare models on saved newsletters (P6). */
+async function evalCmd(sub: string | undefined, o: { count?: number; model?: string; against?: string; limit?: number; rerun: boolean; open: boolean }) {
+  await withConfigAndDb(async (config, db) => {
+    if (sub === "save") {
+      const set = await saveSet(db, p.content, p.eval, o.count ?? 20);
+      console.log(`Saved ${set.cases.length} newsletters as the test set (kept on this Mac until you save a new one or run: broadsheet eval clear).`);
+      for (const c of set.cases) {
+        const yours = [c.you.rating !== null ? "rated" : null, c.you.movedTo ? "moved" : null, c.you.hidden ? "hidden" : null].filter(Boolean).join(", ");
+        console.log(`  ${c.source.padEnd(28).slice(0, 28)}  ${c.title.slice(0, 60)}${c.piece ? ` (${c.piece.kind})` : ""}${yours ? `  [you ${yours}]` : ""}`);
+      }
+      console.log(`\nNext: broadsheet eval   (or: broadsheet eval --against <another model>)`);
+      return;
+    }
+    if (sub === "clear") {
+      await clearEval(p.eval);
+      console.log("Deleted the saved test set, its runs and comparison pages.");
+      return;
+    }
+    if (sub) throw new Error(`Unknown: broadsheet eval ${sub}. Try: broadsheet eval save | broadsheet eval [--model M] [--against M2] | broadsheet eval clear`);
+
+    const set = await loadSet(p.eval);
+    if (!set?.cases.length) throw new Error("There's no test set yet. Save one from today's paper first: broadsheet eval save");
+    const models = [o.model ?? config.ai.model, ...(o.against ? [o.against] : [])];
+    for (const m of models) {
+      const st = await ollamaStatus(config.ai.baseUrl, m);
+      if (!st.running) throw new Error(`Ollama isn't running (${st.error}).`);
+      if (!st.hasModel) throw new Error(`The model "${m}" isn't installed. Installed: ${st.models.join(", ")}.\nTo try it, download it first: ollama pull ${m}`);
+    }
+    const sections = db.prepare("SELECT id, name FROM sections ORDER BY sort_order").all() as { id: string; name: string }[];
+    const ctx = {
+      sections,
+      instructionRules: (db.prepare("SELECT id, instruction, source_id FROM rules WHERE kind = 'instruction' AND status = 'active'").all() as any[]).map((r) => ({ id: r.id, instruction: r.instruction, sourceId: r.source_id })),
+      readerProfile: currentProfile(db, config).text,
+      numCtx: config.ai.numCtx,
+    };
+    const fp = await fingerprint(set, p.eval, ctx);
+    const n = Math.min(o.limit ?? set.cases.length, set.cases.length);
+    const runs: EvalRun[] = [];
+    for (const m of models) {
+      const saved = o.rerun || o.limit ? null : await savedRun(p.eval, m, fp);
+      if (saved) {
+        console.log(`${m}: using its earlier run (same newsletters, same prompt). --rerun runs it again.`);
+        runs.push(saved);
+        continue;
+      }
+      console.log(`${m}: reading ${n} newsletter(s), roughly ${Math.ceil((n * 35) / 60)} minute(s)…`);
+      const llm = new OllamaProvider({ baseUrl: config.ai.baseUrl, model: m, numCtx: config.ai.numCtx, temperature: config.ai.temperature });
+      const wasLoaded = await llm.isLoaded().catch(() => false);
+      try {
+        runs.push(
+          await runModel(llm, m, set, p.eval, ctx, {
+            limit: o.limit,
+            onItem: (i, total, c, r) => console.log(`  ${String(i).padStart(2)}/${total} ${r.ok ? "✅" : "❌"} ${c.title.slice(0, 60)} (${Math.round(r.seconds)} s)${r.ok ? ` · ${r.data!.section}, interest ${r.data!.interest}` : `: ${r.error?.split("\n")[0]}`}`),
+          }),
+        );
+      } finally {
+        if (!wasLoaded) await llm.unload().catch(() => {});
+      }
+    }
+    const shown = o.limit ? { ...set, cases: set.cases.slice(0, o.limit) } : set;
+    const file = join(p.eval, `report-${new Date().toISOString().replace(/[:.]/g, "-")}.html`);
+    await writeFile(file, reportHtml(shown, runs, sections), { mode: 0o600 });
+    console.log(`\nThe comparison: ${file}`);
+    if (o.open) execFile("open", [file]);
+    else console.log(`Open it with: open "${file}"`);
+  });
+}
+
 /** Find a site's feed and show its latest posts, without following it (a preview, like Admin's Follow by URL). */
 async function feedCheck(url: string | undefined) {
   if (!url) throw new Error("Usage: broadsheet feed-check <site or feed address>");
@@ -521,6 +591,16 @@ try {
     case "format":
       await format(args[0], args[1]);
       break;
+    case "eval":
+      await evalCmd(args[0]?.startsWith("--") ? undefined : args[0], {
+        count: flag("count") ? Number(flag("count")) : undefined,
+        model: flag("model"),
+        against: flag("against"),
+        limit: flag("limit") ? Number(flag("limit")) : undefined,
+        rerun: has("rerun"),
+        open: has("open"),
+      });
+      break;
     case "feed-check":
       await feedCheck(args[0]);
       break;
@@ -559,6 +639,11 @@ try {
                             piece its own article); applies to current emails too
   resummarize [--all]       have Gemma read again the items it dropped or failed on
                             (--all: every current item, e.g. after changing your profile)
+  eval save [--count N]     keep N of today's items (default 20) as a test set for comparing models
+  eval [--model M] [--against M2] [--limit N] [--rerun] [--open]
+                            run the test set through a model (default: yours), or two side by
+                            side, and write a comparison page; runs are reused while nothing changed
+  eval clear                delete the test set, runs and pages
   profile [--rebuild]       what your ratings taught it, and the reader profile Gemma uses
                             (--rebuild: have Gemma rewrite the profile now)
   install                   run the agent every 15 minutes in the background (launchd)

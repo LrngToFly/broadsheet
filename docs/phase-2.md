@@ -9,7 +9,7 @@ Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): the order changes bas
 | P3 | **Hiding:** "Don't show things like this" with quick reasons and an optional note, the Hidden list with **Show it again** (the email comes back from Deleted Items) | clear out what you don't want | built |
 | P4 | **Your words, rules in plain English:** the Rules page with **In your own words** (the start of your reader profile; Gemma re-scores current items after a change), an optional "why" note on 👍 👌 👎 that feeds the weekly profile, and rules (view, edit, turn off, delete, add), with Gemma-drafted suggestions from what you hide, a preview of what each would catch, and a badge when suggestions are waiting | teach the Broadsheet in your own words, including *why* you rated something | built |
 | P5 | **Roundups** ([PLAN.md §4.4](../PLAN.md#44-roundup-newsletters)): a per-newsletter format (normal, roundup, multi-section). Roundups split into briefs: Current Events briefs in **News in Brief** on the Front Page, other sections' briefs at the top of their own page; the same story from several roundups shown once. Multi-section newsletters split into separate articles. First roundup: a daily news roundup | read many-story newsletters story by story | built |
-| P6 | **`broadsheet eval`:** compare models side by side on your own newsletters | judge a newer model before switching | |
+| P6 | **`broadsheet eval`:** compare models side by side on your own newsletters | judge a newer model before switching | built |
 
 Design: [PLAN.md §4.2](../PLAN.md#42-ranking) (ranking), [§4.3](../PLAN.md#43-hiding-things-and-rules-in-plain-english) (hiding and rules), [§4.4](../PLAN.md#44-roundup-newsletters) (roundups), [§7](../PLAN.md#7-data-model) (data).
 
@@ -65,4 +65,19 @@ Code: [split.ts (content)](../apps/agent/src/content/split.ts), [split.ts (pipel
 - **Multi-section** works the same way, but each piece is a full article card. No newsletter is set to it yet.
 - **Privacy:** links lose any query value that is an email address (some newsletters put yours in every link), as well as `utm_` tracking.
 - **Not yet:** a story's own web page as its "Open the original" link (some roundups' links go to the sources they cite, so a brief links to its newsletter instead).
+
+## Comparing models (P6)
+
+Code: [eval.ts](../apps/agent/src/ai/eval.ts).
+
+- **`broadsheet eval save`** keeps 20 of today's items (`--count N` for another number) as a test set: the ones you rated, moved or hid first, then the newest from each newsletter in turn, with at most 4 briefs and 2 that Gemma called "not an article". With each it keeps what the paper had (section, interest, summary) and what you did (rating and its note, the section you moved it to, a hide). Saving a new set replaces the old one.
+- **`broadsheet eval`** runs the set through your model; **`--against <model>`** adds a second one, run after the first so only one is in memory at a time. Each model gets exactly the prompt the agent uses, with your profile and rules. A model has to be installed in Ollama first (`ollama pull <name>`); the command says so if it isn't.
+- **The page** (`--open` opens it) has a summary table, then each newsletter with the paper's answer and each model's side by side:
+  - valid replies and retries, seconds per item, and words written;
+  - the interest average and **spread** over the items it called articles (near 0 means it scores them all the same, so it can't rank);
+  - **👍 minus 👎**: how much higher it scores what you liked than what you disliked;
+  - how often it picks the section you moved an item to, and how often it agrees with the paper.
+- **Reuse:** a full run is kept and reused while the set and the prompt are unchanged, so comparing a new model against yours doesn't rerun yours. Changing your words, your rules or the prompt means a fresh run. `--rerun` forces one, and `--limit N` is a quick look at the first N items (not kept).
+- **Privacy:** the set's texts, the runs and the pages stay in `~/Library/Application Support/Broadsheet/eval/` and are never published. This is the one place newsletter text is kept past 4 days; `broadsheet eval clear` deletes all of it.
+- **First run (2026-11-27, Gemma 4 12B, 20 newsletters):** 20 of 20 valid replies, 33 s per item. It gave 17 of the 18 articles interest 85 (spread 4.6), including a story rated 👎, so 👍 minus 👎 was 0: interest barely ranks anything yet, and the order comes mostly from authors, topics and freshness.
 

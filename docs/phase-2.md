@@ -41,7 +41,7 @@ Everything is computed from your *preference records* (P1), so it reflects your 
 - **In an article:** 🚫 **Don't show things like this** hides it at once and opens a small sheet. Tap a reason (Not an article, Ad or promo, Not my topic, Not this author), type a note if you like, then **Done**, or **Undo**. Both are optional; the item is already hidden.
 - **On the Mac:** the item is hidden, its email moves to Deleted Items, and the preference record keeps your reason and note (P4 turns them into rule suggestions). "Not this author" and "Not my topic" also count like a 👎 for that author or those topics in the ranking.
 - **The Hidden list** (link at the bottom of every page) shows everything left out of the paper in the retention window, and why: *You hid this*, *Rule: …*, or *Gemma thought this wasn't an article*. **Show it again** puts it back and returns the email from Deleted Items (or the Inbox, if a rule left it there) to its section folder, or _Sorting. After that, neither a rule nor Gemma's "not an article" hides that item again.
-- **_Add and _Sorting:** drop an email in **_Add** to include it no matter what (only the last 4 days' mail shows in the paper). **_Sorting** is the agent's own waiting room: mail you put there yourself is ignored.
+- **_Add and _Sorting:** drop an email in **_Add** to include it no matter what. Only the last 4 days' mail shows in the paper; an older one is still read by Gemma and filed in its section folder, just not shown, and its record is removed once it's filed. **_Sorting** is the agent's own waiting room: mail you put there yourself is ignored.
 
 ## Your words and rules (P4)
 

@@ -230,7 +230,14 @@ function hiddenCards(db: Db, cutoff: string): HiddenCard[] {
 
 /** Delete expired items everywhere, and images nothing uses any more (PLAN.md §3.5). */
 async function prune(db: Db, appFolder: AppFolderPort, contentDir: string, cutoff: string, now: Date, result: PublishResult) {
-  const expired = db.prepare("SELECT id, content_published FROM items WHERE published_at < ? AND saved = 0").all(cutoff) as { id: string; content_published: number }[];
+  // An email still waiting in _Sorting for Gemma to choose its section is kept until it's filed, even when it's too
+  // old for the paper (one you dropped into _Add, or a backlog): only then is its record removed.
+  const expired = db
+    .prepare(
+      `SELECT id, content_published FROM items WHERE published_at < ? AND saved = 0
+         AND NOT (ai_status = 'pending' AND hidden_by IS NULL AND channel = 'email' AND message_id IS NOT NULL AND mail_folder_id = ?)`,
+    )
+    .all(cutoff, sortingFolder(db)) as { id: string; content_published: number }[];
   for (const e of expired) {
     try {
       if (e.content_published && appFolder.delete) await appFolder.delete(`items/${e.id}.html`);
@@ -271,6 +278,8 @@ async function prune(db: Db, appFolder: AppFolderPort, contentDir: string, cutof
   db.prepare("DELETE FROM rule_requests WHERE status IN ('done', 'dismissed') AND updated_at < ?").run(new Date(now.getTime() - 30 * day).toISOString());
   db.prepare("UPDATE rule_requests SET excerpt = NULL WHERE excerpt IS NOT NULL AND created_at < ?").run(cutoff);
 }
+
+const sortingFolder = (db: Db) => (db.prepare("SELECT value FROM agent_state WHERE key = 'folder:_sorting'").get() as { value: string } | undefined)?.value ?? "";
 
 function contentTypeOf(path: string): string {
   const ext = path.split(".").pop();

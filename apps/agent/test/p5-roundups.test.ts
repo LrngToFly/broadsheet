@@ -198,3 +198,35 @@ describe("a roundup newsletter", () => {
     expect(db.prepare("SELECT format FROM sources WHERE id = 'roundup'").get()).toEqual({ format: "multi-section" });
   });
 });
+
+describe("an old email you drop into _Add", () => {
+  it("is filed in its section but never shown, and its record goes once it's filed", async () => {
+    const { db, mail, moves, contentDir, pub, edition } = setup();
+    const old = mime("A post from last month", "Daily Roundup <daily@roundup.example>", "old@x", roundup);
+    const list = mail.list;
+    mail.list = async (folder, since) =>
+      folder === "ADD" ? ([{ id: "old", subject: "A post from last month", internetMessageId: "<old@x>", receivedDateTime: "2026-10-20T06:00:00Z", isRead: true, from: { emailAddress: { address: "x", name: "x" } } }] as any) : list(folder, since);
+    const mime0 = mail.mime;
+    mail.mime = async (id) => (id === "old" ? old : mime0(id));
+    mail.move = async (id, to) => (moves.push([id, to]), id);
+
+    const a = await stageAEmail({ mail, db, config, contentDir, dryRun: false, now: NOW });
+    const id = itemIdFor("<old@x>");
+    expect(a.outcomes.find((o) => o.subject === "A post from last month")).toMatchObject({ destination: "_Sorting (older than 4 days: filed, not in the paper)" });
+    expect(a.outcomes.find((o) => o.subject === "A post from last month")!.pieces).toBeUndefined(); // too old to split
+    await pub();
+    expect(edition().items.some((i) => i.id === id)).toBe(false);
+    expect(db.prepare("SELECT ai_status FROM items WHERE id = ?").get(id)).toEqual({ ai_status: "pending" }); // kept until filed
+
+    const fileOnly: LlmProvider = {
+      ...llm,
+      chat: async () => ({ text: JSON.stringify({ is_article: true, summary: "An old post about gardens and frost.", key_points: [], section: "gardening", tags: [], interest: 50, why_its_here: "x", read_minutes: 3, hidden_by_rule: null }), promptTokens: 1, outputTokens: 1, seconds: 1 }),
+    };
+    db.prepare("UPDATE items SET ai_status = 'done' WHERE parent_id IS NOT NULL").run(); // only the old one is left for Gemma
+    await stageB({ db, config, llm: fileOnly, mail, contentDir, sampleActivity: async () => away });
+    expect(moves).toContainEqual(["old", "F-gardening"]);
+    await pub();
+    expect(db.prepare("SELECT count(*) n FROM items WHERE id = ?").get(id)).toEqual({ n: 0 });
+    expect(existsSync(join(contentDir, id))).toBe(false);
+  });
+});

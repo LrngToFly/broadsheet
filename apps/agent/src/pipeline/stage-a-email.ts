@@ -118,7 +118,12 @@ export async function stageAEmail(opts: {
       // A skipped email doesn't create a source.
       if (decision.action === "skip") created = null;
 
-      outcomes.push({ subject: email.subject, from: facts.sender, decision, destination, source: source.id, newSource: Boolean(created), words: article.wordCount });
+      // Mail you drop into _Add is filed whatever its age; only the last few days' mail goes in the paper.
+      const tooOld = new Date(m.receivedDateTime) < since;
+      outcomes.push({
+        subject: email.subject, from: facts.sender, decision, source: source.id, newSource: Boolean(created), words: article.wordCount,
+        destination: tooOld && decision.action === "include" ? `${destination} (older than ${config.retention.days} days: filed, not in the paper)` : destination,
+      });
       counts[decision.action === "include" ? "included" : decision.action === "skip" ? "skipped" : "hidden"]!++;
       if (created) {
         counts.newSources!++;
@@ -193,7 +198,8 @@ export async function stageAEmail(opts: {
       }
       // A roundup or multi-section newsletter becomes its pieces (PLAN.md §4.4). If that goes wrong it's
       // still in the paper as one article.
-      if (keep && decision.action === "include") {
+      // Too old for the paper (dropped into _Add): it's only filed, so there's nothing to split.
+      if (keep && decision.action === "include" && !tooOld) {
         const n = await afterFiling(db, opts.contentDir, itemId, source.id, article.html, nowIso).catch((e: Error) => (opts.log?.(`Couldn't split "${email.subject}": ${e.message}`), 0));
         if (n) outcomes.at(-1)!.pieces = n;
       }

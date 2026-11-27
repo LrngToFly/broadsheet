@@ -63,13 +63,15 @@ export async function stageB(opts: {
 
   const items = db
     .prepare(
-      `SELECT i.id, i.title, i.author, i.channel, i.shown_anyway, i.message_id, i.mail_folder_id, i.section_id, i.section_source, i.source_id, i.ai_attempts,
+      `SELECT i.id, i.title, i.author, i.channel, i.published_at, i.shown_anyway, i.message_id, i.mail_folder_id, i.section_id, i.section_source, i.source_id, i.ai_attempts,
               i.kind, i.parent_id, parent.title AS newsletter_title, coalesce(s.display_name, s.id) AS source_name
        FROM items i JOIN sources s ON s.id = i.source_id LEFT JOIN items parent ON parent.id = i.parent_id
        WHERE i.ai_status = 'pending' AND i.hidden_by IS NULL
        ORDER BY i.published_at DESC LIMIT ?`,
     )
     .all(opts.limit ?? 1000) as any[];
+
+  const paperCutoff = new Date(Date.now() - config.retention.days * 86_400_000); // older mail (dropped into _Add) is only filed
 
   /** Once every piece of a split newsletter is read, its email is filed where most of its pieces landed. */
   const fileNewsletter = async (parentId: string): Promise<string> => {
@@ -107,7 +109,7 @@ export async function stageB(opts: {
       }
       // A roundup's email that came back with "Show it again" (or was waiting when you set its format): split it
       // first. Its pieces are read on the next run.
-      if (it.kind === "article" && !it.parent_id && it.channel === "email" && formatOf(db, it.source_id) !== "normal") {
+      if (it.kind === "article" && !it.parent_id && it.channel === "email" && new Date(it.published_at) >= paperCutoff && formatOf(db, it.source_id) !== "normal") {
         const n = await splitItem(db, opts.contentDir, it.id, formatOf(db, it.source_id) as "roundup" | "multi-section", new Date().toISOString());
         if (n) {
           result.outcomes.push({ title: it.title, result: `split into ${n} pieces`, seconds: 0 });

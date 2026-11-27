@@ -118,7 +118,7 @@ The agent supports two **mailbox modes**, set in Admin:
 Nothing is processed unless it matches. The ways in are: approving **Pending** senders that the agent spots from newsletter headers (`List-Unsubscribe`, `List-Id`, the signatures of Substack, beehiiv, Ghost, Buttondown, Kit, Mailchimp, Medium and others) and from article-like content; **include rules** (the same conditions as above, plus **Outlook category**); and the **`_Add` drop folder**.
 
 #### In both modes
-- **Drop folder:** move any email into `The Broadsheet/_Add` and it's processed on the next run. In dedicated mode this is mainly for something that was skipped as transactional by mistake.
+- **Drop folder:** move any email into `The Broadsheet/_Add` and it's processed on the next run. One older than the retention window is filed in its section folder (Gemma picks the section) but isn't added to the paper. In dedicated mode this is mainly for something that was skipped as transactional by mistake.
 - **Test before saving:** Admin shows which of the last 90 days of emails a rule would have matched.
 - **Content source:** for email sources, the content comes **from the email itself**. The agent parses the full message (MIME), takes the HTML part (or plain text if there's no HTML), and cleans it. RSS is a helper here, never a requirement ([§3.4](#34-the-best-version-of-each-post)).
 - **Privacy:** the agent signs in only to the mailbox you give it. In shared mode it reads only headers until an email matches, and mail that doesn't match is never stored.

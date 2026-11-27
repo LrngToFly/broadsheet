@@ -215,7 +215,7 @@ export async function stageAEmail(opts: {
       // still in the paper as one article.
       // Too old for the paper (dropped into _Add): it's only filed, so there's nothing to split.
       if (keep && decision.action === "include" && !tooOld) {
-        const n = await afterFiling(db, opts.contentDir, itemId, source.id, article.html, nowIso).catch((e: Error) => (opts.log?.(`Couldn't split "${email.subject}": ${e.message}`), 0));
+        const n = await afterFiling(db, opts.contentDir, itemId, source.id, article.html, nowIso, { subject: email.subject, receivedAt: m.receivedDateTime }).catch((e: Error) => (opts.log?.(`Couldn't split "${email.subject}": ${e.message}`), 0));
         if (n) outcomes.at(-1)!.pieces = n;
       }
     } catch (e) {

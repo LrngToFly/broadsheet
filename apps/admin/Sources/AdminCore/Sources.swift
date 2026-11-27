@@ -13,6 +13,30 @@ public enum SourceFormat: String, CaseIterable, Sendable, Identifiable {
     }
 }
 
+/// Which of a roundup or multi-section newsletter's emails are split; nil on the source means every one.
+public struct SplitWhen: Sendable, Hashable, Codable {
+    public var subject: String?
+    public var weekend: Bool?
+    public var looksLike: Bool?
+    public init(subject: String? = nil, weekend: Bool? = nil, looksLike: Bool? = nil) {
+        self.subject = subject
+        self.weekend = weekend
+        self.looksLike = looksLike
+    }
+    /// Only the conditions that are set; nil if none is (then every email is split).
+    public var cleaned: SplitWhen? {
+        let s = subject?.trimmingCharacters(in: .whitespaces)
+        let c = SplitWhen(subject: (s?.isEmpty ?? true) ? nil : s, weekend: weekend == true ? true : nil, looksLike: looksLike == true ? true : nil)
+        return c.subject == nil && c.weekend == nil && c.looksLike == nil ? nil : c
+    }
+    /// The --split-when argument.
+    public var argument: String {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys]
+        return String(decoding: (try? enc.encode(self)) ?? Data("{}".utf8), as: UTF8.self)
+    }
+}
+
 public struct SectionRecord: Sendable, Equatable, Identifiable, Hashable {
     public var id: String
     public var name: String
@@ -39,6 +63,8 @@ public struct SourceRecord: Sendable, Hashable, Identifiable {
     public var fromConfigFile: Bool
     /// From its List-Unsubscribe header: a web page or a mailto: address.
     public var unsubscribeURL: String?
+    /// Which emails are split, for a roundup or multi-section newsletter; nil: every one.
+    public var splitWhen: SplitWhen? = nil
 
     public var muted: Bool { status == "muted" }
     /// You rate it 👎 often (3 or more ratings, averaging below −0.3): the unsubscribe helper suggests it.
@@ -66,7 +92,7 @@ extension Database {
         return try query(
             """
             SELECT s.id, coalesce(s.display_name, s.id) AS name, s.display_name, s.channel, s.status, s.format, s.looks_like,
-                   s.fixed_section_id, s.last_post_at, s.origin, s.match_json, s.feed_url, s.site_url, s.unsubscribe_url,
+                   s.fixed_section_id, s.last_post_at, s.origin, s.match_json, s.feed_url, s.site_url, s.unsubscribe_url, s.split_when,
                    (SELECT count(*) FROM source_posts p WHERE p.source_id = s.id AND p.published_at >= ?) AS posts30,
                    (SELECT avg(rating) FROM preference_records r WHERE r.source_id = s.id AND r.rating IS NOT NULL) AS avg_rating,
                    (SELECT count(rating) FROM preference_records r WHERE r.source_id = s.id) AS ratings
@@ -94,6 +120,7 @@ extension SourceRecord {
         ratings = row["ratings"]?.int ?? 0
         fromConfigFile = row["origin"]?.string == "config"
         unsubscribeURL = row["unsubscribe_url"]?.string
+        splitWhen = row["split_when"]?.string.flatMap { try? JSONDecoder().decode(SplitWhen.self, from: Data($0.utf8)) }?.cleaned
         if channel == "feed" {
             address = row["site_url"]?.string ?? row["feed_url"]?.string ?? ""
         } else {
@@ -104,8 +131,10 @@ extension SourceRecord {
 }
 
 /// The `broadsheet source` arguments for what changed in the editor; empty when nothing did.
-public func sourceEditArguments(from old: SourceRecord, name: String, section: String?, format: SourceFormat, included: Bool) -> [String] {
+public func sourceEditArguments(from old: SourceRecord, name: String, section: String?, format: SourceFormat, included: Bool, splitWhen: SplitWhen? = nil) -> [String] {
     var args: [String] = []
+    let split = splitWhen?.cleaned
+    if format != .normal && split != old.splitWhen { args += ["--split-when", split?.argument ?? "always"] }
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     if trimmed != old.name && !trimmed.isEmpty { args += ["--name", trimmed] }
     if section != old.fixedSection { args += ["--section", section ?? "none"] }

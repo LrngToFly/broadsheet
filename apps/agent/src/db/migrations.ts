@@ -306,4 +306,10 @@ export const migrations: string[] = [
   -- From the newsletter's List-Unsubscribe header: a web page, or an email address. For Admin's unsubscribe helper.
   ALTER TABLE sources ADD COLUMN unsubscribe_url TEXT;
   `,
+
+  /* 12: split only some of a newsletter's emails (2026-11-27) */ `
+  -- For a roundup or multi-section newsletter: JSON {subject?, weekend?, looksLike?}; any one matching splits the
+  -- email. NULL: every email is split (as before).
+  ALTER TABLE sources ADD COLUMN split_when TEXT;
+  `,
 ];

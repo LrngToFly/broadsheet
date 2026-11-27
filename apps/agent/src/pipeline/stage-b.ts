@@ -14,7 +14,7 @@ import type { MailPort } from "./stage-a-email.ts";
 import { learn } from "./affinity.ts";
 import { scoringProfile } from "../ai/profile.ts";
 import { draftOne, pendingRequests, rescoreOne } from "../ai/rule-draft.ts";
-import { formatOf, splitItem } from "./split.ts";
+import { formatOf, splitIfDue } from "./split.ts";
 import { FALLBACK_SECTION_ID } from "@broadsheet/shared";
 
 export const MAX_AI_ATTEMPTS = 3;
@@ -122,7 +122,7 @@ export async function stageB(opts: {
       // A roundup's email that came back with "Show it again" (or was waiting when you set its format): split it
       // first. Its pieces are read on the next run.
       if (it.kind === "article" && !it.parent_id && it.channel === "email" && new Date(it.published_at) >= paperCutoff && formatOf(db, it.source_id) !== "normal") {
-        const n = await splitItem(db, opts.contentDir, it.id, formatOf(db, it.source_id) as "roundup" | "multi-section", new Date().toISOString());
+        const n = await splitIfDue(db, opts.contentDir, it.id, new Date().toISOString());
         if (n) {
           result.outcomes.push({ title: it.title, result: `split into ${n} pieces`, seconds: 0 });
           continue;

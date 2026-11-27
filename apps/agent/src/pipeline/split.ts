@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeFileAtomic } from "../backup.ts";
 import type { SourceFormat } from "@broadsheet/shared";
+import { z } from "zod";
 import { transaction, type Db } from "../db/db.ts";
 import { looksLikeRoundup, splitPieces } from "../content/split.ts";
 
@@ -71,13 +72,68 @@ function retire(db: Db, ids: string[]) {
   for (const id of ids) stmt.run(id);
 }
 
-/** After Stage A files an email: split it if its newsletter is a roundup or multi-section one, or note that it
- *  looks like a roundup so `broadsheet sources` can suggest it. */
-export async function afterFiling(db: Db, contentDir: string, itemId: string, sourceId: string, html: string, now: string): Promise<number> {
+/**
+ * Which of a roundup or multi-section newsletter's emails are split. Any condition that matches splits it; none set
+ * (null) splits every email. E.g. a newsletter whose weekend issue is a roundup: {weekend: true}.
+ */
+export const SplitWhen = z
+  .object({
+    /** The subject contains this (any case). */
+    subject: z.string().trim().min(1).max(100).optional(),
+    /** It arrived on a Saturday or Sunday (your time). */
+    weekend: z.boolean().optional(),
+    /** Its layout looks like a roundup: five or more short pieces under their own headings. */
+    looksLike: z.boolean().optional(),
+  })
+  .strict();
+export type SplitWhen = z.infer<typeof SplitWhen>;
+
+export function splitWhenOf(db: Db, sourceId: string): SplitWhen | null {
+  const raw = (db.prepare("SELECT split_when FROM sources WHERE id = ?").get(sourceId) as { split_when: string | null } | undefined)?.split_when;
+  if (!raw) return null;
+  const r = SplitWhen.safeParse(JSON.parse(raw));
+  return r.success && (r.data.subject || r.data.weekend || r.data.looksLike) ? r.data : null;
+}
+
+/** Does this email meet its newsletter's split conditions? */
+export function shouldSplit(when: SplitWhen | null, email: { subject: string; receivedAt: string; html: string }): boolean {
+  if (!when) return true;
+  if (when.subject && email.subject.toLowerCase().includes(when.subject.toLowerCase())) return true;
+  if (when.weekend && [0, 6].includes(new Date(email.receivedAt).getDay())) return true;
+  if (when.looksLike && looksLikeRoundup(email.html)) return true;
+  return false;
+}
+
+/** In words, for `broadsheet sources` and Admin, e.g. 'when the subject contains "Weekend" or it arrives at the weekend'. */
+export function describeSplitWhen(when: SplitWhen | null): string {
+  if (!when) return "every email";
+  const parts = [
+    when.subject ? `the subject contains "${when.subject}"` : null,
+    when.weekend ? "it arrives at the weekend" : null,
+    when.looksLike ? "it looks like a roundup" : null,
+  ].filter(Boolean);
+  return `when ${parts.join(" or ")}`;
+}
+
+/** After Stage A files an email: split it if its newsletter is a roundup or multi-section one and the email meets
+ *  its split conditions, or note that it looks like a roundup so `broadsheet sources` can suggest it. */
+export async function afterFiling(
+  db: Db, contentDir: string, itemId: string, sourceId: string, html: string, now: string, email: { subject: string; receivedAt: string },
+): Promise<number> {
   const format = formatOf(db, sourceId);
-  if (format !== "normal") return splitItem(db, contentDir, itemId, format, now);
+  if (format !== "normal") return shouldSplit(splitWhenOf(db, sourceId), { ...email, html }) ? splitItem(db, contentDir, itemId, format, now) : 0;
   if (looksLikeRoundup(html)) db.prepare("UPDATE sources SET looks_like = 'roundup' WHERE id = ? AND format = 'normal'").run(sourceId);
   return 0;
+}
+
+/** Split an item now if its newsletter's format and split conditions say so (Stage B, for one shown again). */
+export async function splitIfDue(db: Db, contentDir: string, itemId: string, now: string): Promise<number> {
+  const it = db.prepare("SELECT source_id, title, published_at FROM items WHERE id = ?").get(itemId) as { source_id: string; title: string; published_at: string } | undefined;
+  if (!it) return 0;
+  const format = formatOf(db, it.source_id);
+  if (format === "normal") return 0;
+  const html = await readFile(join(contentDir, itemId, "article.html"), "utf8").catch(() => "");
+  return shouldSplit(splitWhenOf(db, it.source_id), { subject: it.title, receivedAt: it.published_at, html }) ? splitItem(db, contentDir, itemId, format, now) : 0;
 }
 
 /**
@@ -86,13 +142,31 @@ export async function afterFiling(db: Db, contentDir: string, itemId: string, so
  */
 export async function setFormat(db: Db, contentDir: string, sourceId: string, format: SourceFormat, cutoff: string, now: string) {
   db.prepare("UPDATE sources SET format = ?, looks_like = NULL WHERE id = ?").run(format, sourceId);
-  const current = db.prepare("SELECT id, kind FROM items WHERE source_id = ? AND parent_id IS NULL AND channel = 'email' AND published_at >= ? AND hidden_by IS NULL").all(sourceId, cutoff) as { id: string; kind: string }[];
+  return applyFormat(db, contentDir, sourceId, cutoff, now);
+}
+
+/** Change which emails are split (null: all of them), and apply it to the current ones. */
+export async function setSplitWhen(db: Db, contentDir: string, sourceId: string, when: SplitWhen | null, cutoff: string, now: string) {
+  const clean = when && (when.subject || when.weekend || when.looksLike) ? when : null;
+  db.prepare("UPDATE sources SET split_when = ? WHERE id = ?").run(clean ? JSON.stringify(clean) : null, sourceId);
+  return applyFormat(db, contentDir, sourceId, cutoff, now);
+}
+
+/** Bring the newsletter's current emails in line with its format and split conditions: split, re-split, or join. */
+async function applyFormat(db: Db, contentDir: string, sourceId: string, cutoff: string, now: string) {
+  const format = formatOf(db, sourceId);
+  const when = splitWhenOf(db, sourceId);
+  const current = db
+    .prepare("SELECT id, kind, title, published_at FROM items WHERE source_id = ? AND parent_id IS NULL AND channel = 'email' AND published_at >= ? AND hidden_by IS NULL")
+    .all(sourceId, cutoff) as { id: string; kind: string; title: string; published_at: string }[];
   let split = 0;
   let joined = 0;
   for (const it of current) {
-    if (format === "normal") {
+    const html = format === "normal" ? "" : await readFile(join(contentDir, it.id, "article.html"), "utf8").catch(() => "");
+    const wanted = format !== "normal" && shouldSplit(when, { subject: it.title, receivedAt: it.published_at, html });
+    if (!wanted) {
       if (it.kind === "newsletter") (unsplit(db, it.id), joined++);
-    } else if (await splitItem(db, contentDir, it.id, format, now)) {
+    } else if (await splitItem(db, contentDir, it.id, format as Exclude<SourceFormat, "normal">, now)) {
       split++;
     }
   }

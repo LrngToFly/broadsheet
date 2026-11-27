@@ -105,11 +105,11 @@ import Testing
         CREATE TABLE sections (id TEXT, name TEXT, sort_order INTEGER);
         INSERT INTO sections VALUES ('gardening', 'Gardening', 1), ('current-events', 'Current Events', 0);
         CREATE TABLE sources (id TEXT, display_name TEXT, channel TEXT, status TEXT, format TEXT, looks_like TEXT, fixed_section_id TEXT,
-          last_post_at TEXT, origin TEXT, match_json TEXT, feed_url TEXT, site_url TEXT, unsubscribe_url TEXT);
+          last_post_at TEXT, origin TEXT, match_json TEXT, feed_url TEXT, site_url TEXT, unsubscribe_url TEXT, split_when TEXT);
         INSERT INTO sources VALUES
-          ('garden', 'Garden Letter', 'email', 'enabled', 'normal', 'roundup', 'gardening', '\(recent)', 'auto', '{"listId":"garden.substack.com"}', NULL, NULL, 'https://garden.example/unsub'),
-          ('quiet', NULL, 'email', 'muted', 'roundup', 'roundup', NULL, '\(old)', 'config', '{"sender":"hi@quiet.example"}', NULL, NULL, NULL),
-          ('blog', 'A Blog', 'feed', 'enabled', 'normal', NULL, NULL, NULL, 'config', NULL, 'https://x/feed', 'https://x', NULL);
+          ('garden', 'Garden Letter', 'email', 'enabled', 'normal', 'roundup', 'gardening', '\(recent)', 'auto', '{"listId":"garden.substack.com"}', NULL, NULL, 'https://garden.example/unsub', NULL),
+          ('quiet', NULL, 'email', 'muted', 'roundup', 'roundup', NULL, '\(old)', 'config', '{"sender":"hi@quiet.example"}', NULL, NULL, NULL, '{"weekend":true}'),
+          ('blog', 'A Blog', 'feed', 'enabled', 'normal', NULL, NULL, NULL, 'config', NULL, 'https://x/feed', 'https://x', NULL, NULL);
         CREATE TABLE source_posts (item_id TEXT, source_id TEXT, published_at TEXT);
         INSERT INTO source_posts VALUES ('1', 'garden', '\(recent)'), ('2', 'garden', '\(recent)'), ('3', 'garden', '\(old)');
         CREATE TABLE preference_records (item_id TEXT, source_id TEXT, rating INTEGER);
@@ -132,6 +132,7 @@ import Testing
         #expect(quiet.muted && quiet.fromConfigFile && !quiet.looksLikeRoundup) // already a roundup: no suggestion
         #expect(quiet.silentDays(now: now) == 60)
         #expect(quiet.address == "hi@quiet.example")
+        #expect(quiet.splitWhen == SplitWhen(weekend: true))
         #expect(s[0].address == "https://x")
     }
 
@@ -277,5 +278,19 @@ import Testing
         #expect(try db.scalar("SELECT x FROM t").int == 42)
         #expect(throws: DatabaseError.self) { try db.query("INSERT INTO t VALUES (1)") }
         #expect(throws: DatabaseError.self) { try Database(path: dir.appending(path: "missing.db").path) }
+    }
+}
+
+@Suite struct SplitWhenTests {
+    @Test func buildsTheSplitArgument() {
+        let s = SourceRecord(id: "n", name: "N", customName: nil, channel: "email", status: "enabled", format: .roundup, looksLikeRoundup: false, fixedSection: nil,
+                             lastPost: nil, postsLast30Days: 0, averageRating: nil, ratings: 0, address: "", fromConfigFile: false, unsubscribeURL: nil)
+        #expect(sourceEditArguments(from: s, name: "N", section: nil, format: .roundup, included: true, splitWhen: SplitWhen(weekend: true))
+            == ["source", "n", "--split-when", #"{"weekend":true}"#])
+        #expect(sourceEditArguments(from: s, name: "N", section: nil, format: .roundup, included: true, splitWhen: SplitWhen(subject: "  ", weekend: false)) == [])
+        var t = s
+        t.splitWhen = SplitWhen(subject: "Weekend")
+        #expect(sourceEditArguments(from: t, name: "N", section: nil, format: .roundup, included: true, splitWhen: nil) == ["source", "n", "--split-when", "always"])
+        #expect(sourceEditArguments(from: t, name: "N", section: nil, format: .roundup, included: true, splitWhen: SplitWhen(subject: "Weekend")) == [])
     }
 }

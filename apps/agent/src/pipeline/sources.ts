@@ -3,7 +3,7 @@
 import type { SourceFormat } from "@broadsheet/shared";
 import { transaction, type Db } from "../db/db.ts";
 import type { MailPort } from "./stage-a-email.ts";
-import { setFormat } from "./split.ts";
+import { describeSplitWhen, setFormat, setSplitWhen, splitWhenOf, type SplitWhen } from "./split.ts";
 
 export type SourceChanges = {
   name?: string | null;
@@ -12,6 +12,8 @@ export type SourceChanges = {
   format?: SourceFormat;
   /** true: its emails are skipped (left in the Inbox); false: included again. */
   muted?: boolean;
+  /** Which emails a roundup or multi-section newsletter splits; null: every one. */
+  splitWhen?: SplitWhen | null;
 };
 
 export type EditResult = { changed: string[]; moved: number; errors: string[] };
@@ -78,6 +80,11 @@ export async function editSource(
         }
       }
     }
+  }
+
+  if (changes.splitWhen !== undefined && JSON.stringify(changes.splitWhen ?? null) !== JSON.stringify(splitWhenOf(db, id))) {
+    const r = await setSplitWhen(db, opts.contentDir, id, changes.splitWhen, opts.cutoff, opts.now);
+    result.changed.push(`split ${describeSplitWhen(splitWhenOf(db, id))}${r.split ? ` (split ${r.split} current email${r.split === 1 ? "" : "s"})` : ""}${r.joined ? ` (put ${r.joined} back together)` : ""}`);
   }
 
   if (changes.format && changes.format !== src.format) {

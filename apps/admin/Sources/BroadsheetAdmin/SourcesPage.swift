@@ -147,6 +147,8 @@ struct SourceEditor: View {
     @State private var section: String?
     @State private var format: SourceFormat
     @State private var included: Bool
+    @State private var splitSome: Bool
+    @State private var split: SplitWhen
     @State private var working = false
     @State private var message: (text: String, ok: Bool)?
     @State private var switching = false
@@ -161,9 +163,13 @@ struct SourceEditor: View {
         _section = State(initialValue: source.fixedSection)
         _format = State(initialValue: source.format)
         _included = State(initialValue: !source.muted)
+        _splitSome = State(initialValue: source.splitWhen != nil)
+        _split = State(initialValue: source.splitWhen ?? SplitWhen())
     }
 
-    private var args: [String] { sourceEditArguments(from: source, name: name, section: section, format: format, included: included) }
+    private var args: [String] {
+        sourceEditArguments(from: source, name: name, section: section, format: format, included: included, splitWhen: splitSome ? split : nil)
+    }
 
     var body: some View {
         Form {
@@ -184,6 +190,24 @@ struct SourceEditor: View {
             } footer: {
                 Text("A new section also moves its current articles, and their emails in Outlook, unless you moved them yourself. Turned off, its emails stay in the Inbox.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+
+            if format != .normal {
+                Section {
+                    Picker("Split", selection: $splitSome) {
+                        Text("Every email").tag(false)
+                        Text("Only some emails").tag(true)
+                    }
+                    .pickerStyle(.radioGroup)
+                    if splitSome {
+                        TextField("When the subject contains", text: Binding(get: { split.subject ?? "" }, set: { split.subject = $0 }), prompt: Text("e.g. Weekend"))
+                        Toggle("When it arrives on a Saturday or Sunday", isOn: Binding(get: { split.weekend ?? false }, set: { split.weekend = $0 }))
+                        Toggle("When its layout looks like a roundup", isOn: Binding(get: { split.looksLike ?? false }, set: { split.looksLike = $0 }))
+                    }
+                } footer: {
+                    Text("Any one that matches splits the email; the rest arrive as one article. Changing this also applies to its emails in today's paper.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             if source.looksLikeRoundup && format == .normal {
@@ -230,7 +254,10 @@ struct SourceEditor: View {
 
             Section {
                 HStack {
-                    Button("Revert") { name = source.name; section = source.fixedSection; format = source.format; included = !source.muted }
+                    Button("Revert") {
+                        name = source.name; section = source.fixedSection; format = source.format; included = !source.muted
+                        splitSome = source.splitWhen != nil; split = source.splitWhen ?? SplitWhen()
+                    }
                         .disabled(args.isEmpty || working)
                     Spacer()
                     if working { ProgressView().controlSize(.small) }

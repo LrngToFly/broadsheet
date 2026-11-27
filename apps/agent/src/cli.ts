@@ -31,7 +31,7 @@ import { follow, guessSite, previewFeed, switchToFeed } from "./pipeline/followi
 import { approveNew, backfillSkipped, includeSkipped, mailReview } from "./pipeline/mail-review.ts";
 import { exportData, forget, importData, storage } from "./data.ts";
 import { dailyBackup, integrityProblem, listBackups, restoreBackup, weeklyCloudBackup, writeFileAtomic } from "./backup.ts";
-import { setFormat } from "./pipeline/split.ts";
+import { describeSplitWhen, setFormat, SplitWhen, splitWhenOf } from "./pipeline/split.ts";
 import { parsePause, pausedUntil, setPause } from "./pause.ts";
 import { describeSettings, isSettingKey, parseSettingValue, SETTINGS, setSetting, withSettings } from "./settings.ts";
 import { editSource, type SourceChanges } from "./pipeline/sources.ts";
@@ -513,7 +513,7 @@ async function sources() {
     const width = Math.min(40, Math.max(...rows.map((r) => r.name.length)));
     console.log(`YOUR NEWSLETTERS (${rows.length})`);
     for (const r of rows) {
-      const bits = [r.format === "normal" ? null : r.format, r.section ? `always ${r.section}` : null, r.status === "muted" ? "muted" : null].filter(Boolean);
+      const bits = [r.format === "normal" ? null : `${r.format}, ${describeSplitWhen(splitWhenOf(db, r.id))}`, r.section ? `always ${r.section}` : null, r.status === "muted" ? "muted" : null].filter(Boolean);
       console.log(`  ${r.name.padEnd(width)}  ${r.id}${bits.length ? `  (${bits.join(", ")})` : ""}`);
     }
     const suggested = rows.filter((r) => r.looks_like === "roundup" && r.format === "normal");
@@ -550,7 +550,7 @@ async function format(sourceId: string | undefined, value: string | undefined) {
 
 /** Change one newsletter (Admin's Sources page runs this). */
 async function source(id: string | undefined) {
-  const usage = "Usage: broadsheet source <id> [--name \"New name\"] [--section <section id>|none] [--format normal|roundup|multi-section] [--mute|--unmute]";
+  const usage = "Usage: broadsheet source <id> [--name \"New name\"] [--section <section id>|none] [--format normal|roundup|multi-section] [--split-when always|'<json>'] [--mute|--unmute]";
   if (!id || id.startsWith("--")) throw new Error(usage);
   const changes: SourceChanges = {};
   if (flag("name") !== undefined) changes.name = flag("name");
@@ -559,6 +559,21 @@ async function source(id: string | undefined) {
     const f = SourceFormat.safeParse(flag("format"));
     if (!f.success) throw new Error(usage);
     changes.format = f.data;
+  }
+  if (flag("split-when") !== undefined) {
+    const v = flag("split-when")!;
+    if (v === "always") changes.splitWhen = null;
+    else {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(v);
+      } catch {
+        throw new Error(`--split-when takes always, or JSON like '{"subject":"Weekend","weekend":true,"looksLike":true}'`);
+      }
+      const r = SplitWhen.safeParse(parsed);
+      if (!r.success) throw new Error(`--split-when: ${z.prettifyError(r.error)}`);
+      changes.splitWhen = r.data;
+    }
   }
   if (has("mute")) changes.muted = true;
   if (has("unmute")) changes.muted = false;
@@ -1190,6 +1205,7 @@ try {
                             get an email newsletter from its feed instead
   sources                   your newsletters, their formats, and which look like roundups
   source <id> [--name "…"] [--section <id>|none] [--format …] [--mute|--unmute]
+         [--split-when always|'{"subject":"…","weekend":true,"looksLike":true}']
                             change one newsletter (current items and emails follow a new section)
   format <id> <format>      normal, roundup (each story a brief) or multi-section (each
                             piece its own article); applies to current emails too

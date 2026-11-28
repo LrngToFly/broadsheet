@@ -101,6 +101,9 @@ export const Config = z
         coverage: z.number().min(0).max(0.2).default(0.03),
       })
       .prefault({}),
+    /** Where your reader is published, e.g. https://you.github.io/broadsheet/ (Admin's "Open the Broadsheet").
+     *  `broadsheet init` fills it in from your fork's GitHub address. */
+    readerUrl: z.url({ protocol: /^https?$/ }).optional(),
     /** A few sentences about what you like to read, in your own words. Gemma also writes a profile from your
      *  ratings each week; it starts from these words and they win where the two disagree. */
     readerProfile: z.string().max(4000).default(""),

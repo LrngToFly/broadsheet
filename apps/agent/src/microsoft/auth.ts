@@ -1,4 +1,4 @@
-// Microsoft sign-in for the newsletter account (PLAN.md §12). The agent uses the device-code flow:
+// Microsoft sign-in for the newsletter account (PLAN.md §11). The agent uses the device-code flow:
 // you approve it once on any device, and MSAL then renews tokens silently with the refresh token.
 import { InteractionRequiredAuthError, PublicClientApplication, type AccountInfo } from "@azure/msal-node";
 import { encryptedCachePlugin, clearTokenCache, type KeyStore, keychainKeyStore } from "./token-cache.ts";

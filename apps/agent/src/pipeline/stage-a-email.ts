@@ -216,8 +216,9 @@ export async function stageAEmail(opts: {
       // still in the paper as one article.
       // Too old for the paper (dropped into _Add): it's only filed, so there's nothing to split.
       if (keep && decision.action === "include" && !tooOld) {
-        // A cartoon of the day (a newsletter set to show cartoons): kept with the item for Everything Else.
-        const cartoon = extractCartoon(article.html);
+        // A cartoon of the day, from a newsletter set to show its cartoons: kept with the item for Everything Else.
+        const showsCartoons = (db.prepare("SELECT cartoon FROM sources WHERE id = ?").get(source.id) as { cartoon: number } | undefined)?.cartoon === 1;
+        const cartoon = showsCartoons ? extractCartoon(article.html) : null;
         if (cartoon) db.prepare("UPDATE items SET cartoon_json = ? WHERE id = ?").run(JSON.stringify(cartoon), itemId);
         const n = await afterFiling(db, opts.contentDir, itemId, source.id, article.html, nowIso, { subject: email.subject, receivedAt: m.receivedDateTime }).catch((e: Error) => (opts.log?.(`Couldn't split "${email.subject}": ${e.message}`), 0));
         if (n) outcomes.at(-1)!.pieces = n;

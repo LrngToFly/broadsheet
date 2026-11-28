@@ -1,6 +1,6 @@
 # Phase 1 — Prototype (Gemma)
 
-Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): today's newsletters appear summarized on your phone and filed in Outlook, without you noticing the Mac working.
+Goal (from [PLAN.md §10](../PLAN.md#10-phased-delivery)): today's newsletters appear summarized on your phone and filed in Outlook, without you noticing the Mac working.
 
 Phase 1 is built in milestones. Each one ends with something you can run. **Phase 1 is complete.**
 

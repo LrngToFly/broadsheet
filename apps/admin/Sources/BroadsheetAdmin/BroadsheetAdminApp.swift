@@ -93,7 +93,9 @@ struct MenuContent: View {
         Divider()
         Button("Open Admin…") { openAdmin() }
         .keyboardShortcut(",")
-        Link("Open the Broadsheet", destination: URL(string: "https://lrngtofly.github.io/broadsheet/")!)
+        if let reader = agent.locations.readerURL() {
+            Link("Open the Broadsheet", destination: reader)
+        }
         Divider()
         Button("Quit Broadsheet Admin") { NSApp.terminate(nil) }
             .keyboardShortcut("q")

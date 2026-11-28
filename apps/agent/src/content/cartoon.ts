@@ -1,5 +1,6 @@
-// A cartoon of the day in a newsletter (an email with "Today's Cartoon, by A. N. Artist": the cartoon,
-// then its caption in a separate line of text, not in the image). Shown at the top of Everything Else.
+// A cartoon of the day in a newsletter ("Today's Cartoon, by A. N. Artist", the cartoon, then its caption in a
+// separate line of text, not in the image), for newsletters set to show cartoons (sources.cartoon). Shown at the top
+// of Everything Else.
 import { parseHTML } from "linkedom";
 
 export type Cartoon = {

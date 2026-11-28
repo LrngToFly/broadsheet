@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The Broadsheet agent command line (PLAN.md §8.3). More commands arrive with each Phase 1 milestone.
-import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -30,6 +30,7 @@ import { parseExactRule, saveExactRule, testRule } from "./pipeline/rule-editor.
 import { follow, guessSite, previewFeed, switchToFeed } from "./pipeline/following.ts";
 import { approveNew, backfillSkipped, includeSkipped, mailReview } from "./pipeline/mail-review.ts";
 import { exportData, forget, importData, storage } from "./data.ts";
+import { readerUrlFromRemote } from "./setup.ts";
 import { dailyBackup, integrityProblem, listBackups, restoreBackup, weeklyCloudBackup, writeFileAtomic } from "./backup.ts";
 import { describeSplitWhen, setFormat, SplitWhen, splitWhenOf } from "./pipeline/split.ts";
 import { parsePause, pausedUntil, setPause } from "./pause.ts";
@@ -76,20 +77,24 @@ async function withConfigAndDb<T>(fn: (config: Config, db: Db) => Promise<T>): P
 
 // ---------------------------------------------------------------------------------------------------
 
-async function init(clientId?: string) {
+async function gitRemote(): Promise<string | null> {
+  const { execFile } = await import("node:child_process");
+  return new Promise((resolve) => execFile("git", ["-C", join(here, ".."), "remote", "get-url", "origin"], (err, out) => resolve(err ? null : out.trim())));
+}
+
+async function init(clientId?: string, readerUrl?: string) {
   if (existsSync(p.config)) {
     console.log(`A config file already exists at:\n  ${p.config}\nLeaving it alone.`);
     return;
   }
   await mkdir(p.home, { recursive: true });
-  if (clientId) {
-    const example = JSON.parse(await readFile(EXAMPLE, "utf8"));
-    example.microsoft.clientId = clientId;
-    await writeFile(p.config, JSON.stringify(example, null, 2) + "\n", { mode: 0o600 });
-  } else {
-    await copyFile(EXAMPLE, p.config);
-  }
-  console.log(`Created ${p.config}\nEdit it, then run: broadsheet doctor`);
+  const config = JSON.parse(await readFile(EXAMPLE, "utf8"));
+  if (clientId) config.microsoft.clientId = clientId;
+  const remote = readerUrl ? null : await gitRemote();
+  const url = readerUrl ?? (remote ? readerUrlFromRemote(remote) : null);
+  if (url) config.readerUrl = url;
+  await writeFile(p.config, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+  console.log(`Created ${p.config}${url ? `\nYour reader: ${url}` : ""}\n${clientId ? "" : "Put your Microsoft app's client ID in it, then "}run: broadsheet doctor`);
 }
 
 async function login(importSpike: boolean) {
@@ -550,7 +555,7 @@ async function format(sourceId: string | undefined, value: string | undefined) {
 
 /** Change one newsletter (Admin's Sources page runs this). */
 async function source(id: string | undefined) {
-  const usage = "Usage: broadsheet source <id> [--name \"New name\"] [--section <section id>|none] [--format normal|roundup|multi-section] [--split-when always|'<json>'] [--always-show|--not-always-show] [--mute|--unmute]";
+  const usage = "Usage: broadsheet source <id> [--name \"New name\"] [--section <section id>|none] [--format normal|roundup|multi-section] [--split-when always|'<json>'] [--always-show|--not-always-show] [--cartoon|--no-cartoon] [--mute|--unmute]";
   if (!id || id.startsWith("--")) throw new Error(usage);
   const changes: SourceChanges = {};
   if (flag("name") !== undefined) changes.name = flag("name");
@@ -577,6 +582,8 @@ async function source(id: string | undefined) {
   }
   if (has("always-show")) changes.alwaysShow = true;
   if (has("not-always-show")) changes.alwaysShow = false;
+  if (has("cartoon")) changes.cartoon = true;
+  if (has("no-cartoon")) changes.cartoon = false;
   if (has("mute")) changes.muted = true;
   if (has("unmute")) changes.muted = false;
   if (!Object.keys(changes).length) throw new Error(usage);
@@ -1072,7 +1079,7 @@ const has = (name: string) => args.includes(`--${name}`);
 try {
   switch (cmd) {
     case "init":
-      await init(flag("client-id"));
+      await init(flag("client-id"), flag("reader-url"));
       break;
     case "login":
       await login(has("import-spike"));
@@ -1189,7 +1196,9 @@ try {
     default:
       console.log(`Usage: broadsheet <command>
 
-  init [--client-id <id>]   create the config file from the example
+  init [--client-id <id>] [--reader-url <url>]
+                            create the config file (the reader's address comes from your
+                            fork's GitHub address unless given)
   login                     sign in to the newsletter account (once)
   login --import-spike      reuse the Phase 0 sign-in instead
   logout                    remove the saved sign-in
@@ -1206,7 +1215,7 @@ try {
   switch-to-feed <id> [--url <site>] [--preview]
                             get an email newsletter from its feed instead
   sources                   your newsletters, their formats, and which look like roundups
-  source <id> [--name "…"] [--section <id>|none] [--format …] [--mute|--unmute] [--always-show|--not-always-show]
+  source <id> [--name "…"] [--section <id>|none] [--format …] [--mute|--unmute] [--always-show|--not-always-show] [--cartoon|--no-cartoon]
          [--split-when always|'{"subject":"…","weekend":true,"looksLike":true}']
                             change one newsletter (current items and emails follow a new section)
   format <id> <format>      normal, roundup (each story a brief) or multi-section (each

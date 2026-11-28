@@ -15,7 +15,7 @@ The Broadsheet turns the newsletters in your inbox (Substack and similar), plus 
 - **AI:** **Gemma, run locally through Ollama**, is the only AI for now. It sits behind a pluggable interface, so other providers (Apple's on-device model, the Claude API) could be added later without a redesign.
 - **Shared machine:** the Mac mini is also your personal computer, so the agent must stay out of your way when you're using it.
 
-The decisions still open are in [§13](#13-decisions-for-you).
+The decisions still open are in [§12](#12-decisions-for-you).
 
 ---
 
@@ -253,7 +253,7 @@ The **Front Page** shows the top items across all sections, and each section tab
 #### Hiding an item (in the reader)
 1. On any item, tap **Don't show things like this**. The item disappears at once.
 2. A small sheet offers optional reasons. Tap one, or none:
-   - **Not an article** (video or live-stream link, podcast link, "thanks for subscribing")
+   - **Not an article** (video, audio or live-stream link, "thanks for subscribing")
    - **Ad or promo**
    - **Not my topic**
    - **Not this author**
@@ -360,7 +360,7 @@ Before Stage B, and again **between every item**, the agent checks these signals
 
 | Signal | macOS source | Default rule |
 |---|---|---|
-| Time since last keyboard/mouse input | `ioreg -c IOHIDSystem` → `HIDIdleTime` | Wait until idle for the **configured threshold** (your value TBD, see §13; adjustable in Admin) |
+| Time since last keyboard/mouse input | `ioreg -c IOHIDSystem` → `HIDIdleTime` | Wait until idle for the **configured threshold** (your value TBD, see §12; adjustable in Admin) |
 | Screen locked | `ioreg` console-user session → `CGSSessionScreenIsLocked` | Locked counts as idle right away |
 | Thermal warning | `pmset -g therm` | Skip if macOS reports a thermal warning |
 | Low Power Mode | `pmset -g` → `lowpowermode` | Skip |
@@ -518,13 +518,7 @@ Logs are written as structured JSON to `~/Library/Logs/Broadsheet/`.
 
 ---
 
-## 10. Podcasts: not part of the Broadsheet
-
-Podcasts will be a separate app (decided 2026-11-27). The section number is kept so links to later sections still work.
-
----
-
-## 11. Phased delivery
+## 10. Phased delivery
 
 | Phase | Scope | Done when |
 |---|---|---|
@@ -551,54 +545,13 @@ Podcasts will be a separate app (decided 2026-11-27). The section number is kept
 
 ---
 
-## 12. Deployment instructions (draft)
+## 11. Deployment instructions
 
-The full step-by-step guide, `docs/DEPLOY.md`, ships with the code.
-
-**Prerequisites**
-- An Apple silicon Mac with 16 GB of RAM or more (24 GB recommended for a shared machine).
-- Energy set to prevent automatic sleep when the display is off.
-- **Ollama**, as one shared service that other projects can also use: `brew install ollama`, then `brew services start ollama` (starts at login), then `ollama pull gemma4:12b` (about an 8 GB download).
-- **Xcode** (free), only to build the Admin app.
-- A GitHub account.
-- **A dedicated Outlook.com account for newsletters** (step 0).
-
-**0. Create the newsletter account and move your subscriptions (once)**
-1. **Create the account:** at outlook.com choose *Create free account*, e.g. `yourname.newsletters@outlook.com`. Reusing your mobile number as its security phone is fine.
-2. **Move Substack in one step:** in Substack, go to *Settings → Account → Email* and change it to the new address. All your Substack subscriptions, paid ones included, follow the account.
-3. **Move other newsletters** one at a time, using the "manage subscription" or "update email" link at the bottom of each email.
-4. **Catch stragglers** with a temporary rule in your *personal* Outlook that forwards known newsletter senders to the new address. Remove it once everything has moved.
-5. **Optional, on your Mac and phone:** add the new account to Outlook or Apple Mail if you want to browse it. Both handle multiple accounts. The OneDrive Mac app is **not** needed.
-6. **Keep it active:** sign in to outlook.com with it in a browser every few months. Microsoft may close free accounts that see no sign-ins for about two years, and it isn't certain that the agent's API access counts. `broadsheet doctor` will remind you.
-
-**A. Register the Microsoft app (≈10 min, once)**
-1. In the Entra admin center, go to *App registrations → New registration*, name it "The Broadsheet", and choose **personal Microsoft accounts**.
-2. Add platform **Single-page application** with redirect URIs `https://<you>.github.io/broadsheet/` and `http://localhost:5173/`.
-3. Under *Authentication*, enable **Allow public client flows**, for the agent's device-code sign-in.
-4. Add these delegated permissions: `Mail.ReadWrite`, `Files.ReadWrite.AppFolder`, `offline_access`, `User.Read`.
-5. Copy the **Application (client) ID**.
-
-**B. Deploy the reader (≈5 min)**
-1. Fork the repo, then go to *Settings → Pages → Source: GitHub Actions*.
-2. Under *Settings → Secrets and variables → Actions → Variables*, add `ENTRA_CLIENT_ID`.
-3. Push to `main`. The PWA is published at `https://<you>.github.io/broadsheet/`.
-
-**C. Install the agent (≈15 min)**
-1. Run `brew install node pnpm`, then `git clone …`, then `./scripts/install-agent.sh`.
-   - It builds the agent and installs it to `~/Library/Application Support/Broadsheet/`.
-   - It writes the LaunchAgent plist: every 15 min, `ProcessType=Background`.
-2. Run `broadsheet login` and sign in with the **newsletter account**, then `broadsheet doctor` (which confirms OneDrive, mail folders, Ollama and the Gemma model).
-3. Edit the starter config (sections and approved sources), or approve sources later in Admin. Then run `broadsheet backfill --days 3`.
-
-**D. Install Admin:** run `apps/admin/build.sh`, which builds it with Xcode's tools and installs `~/Applications/Broadsheet Admin.app` ([docs/phase-3.md](docs/phase-3.md)). Add it to Login Items to start it with the Mac.
-
-**E. On each device:** open the Pages URL in Safari and sign in with the **newsletter account**. If Microsoft offers your personal account, choose *Use another account*. Then choose Share → *Add to Home Screen*.
-
-**Updates:** run `git pull && ./scripts/install-agent.sh`. The PWA updates itself.
+The step-by-step guide is **[docs/DEPLOY.md](docs/DEPLOY.md)**: the newsletter account, the Microsoft app registration, the fork and its reader website, the Mac, the agent (`scripts/install.sh` does most of it) and Admin. The draft that was here had two errors, fixed there: the reader signs in through `…/redirect.html`, and the agent runs from the cloned folder rather than being installed elsewhere.
 
 ---
 
-## 13. Decisions for you
+## 12. Decisions for you
 
 1. ~~Storage~~: **OneDrive App Folder (decided)**, in the **dedicated newsletter account (decided)**.
 2. ~~AI~~: **Gemma 4 12B via Ollama only, for now (decided).** Other providers can be added later.
@@ -615,7 +568,7 @@ The full step-by-step guide, `docs/DEPLOY.md`, ships with the code.
 13. ~~Explaining your ratings~~: **decided (2026-11-27).** An **In your own words** box in the reader starts your profile, and 👍 👌 👎 take an optional "why" note ([§4.2](#42-ranking)).
 14. ~~Roundup newsletters~~: **decided (2026-11-27).** You set each newsletter's format (Gemma may suggest it). Current Events briefs go in **News in Brief** on the Front Page; other sections' briefs go at the top of their own page ([§4.4](#44-roundup-newsletters)). A daily news roundup is the first.
 
-## 14. Extra suggestions
+## 13. Extra suggestions
 
 - **Morning Edition:** freeze a curated Front Page at 6 a.m. each day so the top stories don't shuffle while you read. The overnight idle hours make this nearly free.
 - **"Why it's here"** on every card, so the ranking is never a black box.

@@ -1,6 +1,6 @@
 # Phase 2 — Personalization
 
-Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): the order changes based on your ratings, and you can hide what you don't want, all from the reader on any device.
+Goal (from [PLAN.md §10](../PLAN.md#10-phased-delivery)): the order changes based on your ratings, and you can hide what you don't want, all from the reader on any device.
 
 | # | Milestone | You can… | Status |
 |---|---|---|---|
@@ -99,8 +99,8 @@ Code: [eval.ts](../apps/agent/src/ai/eval.ts).
 
 ## Always shown, and the cartoon of the day (2026-11-27)
 
-- **Always show a newsletter:** in Admin's Sources panel, **Always show its newest post** (or `broadsheet source <id> --always-show`). Its newest post goes to the top of its section (above In brief) and of the Front Page, marked 📌 Always shown, until you've read it; after the next refresh it goes like any read article, until the next post arrives. Gemma's "not an article" never hides it. Evening Letter (the Evening Letter) is set this way, with Current Events as its fixed section.
-- **The cartoon of the day:** when an email has a "Today's Cartoon, by …" heading (a newsletter set to show cartoons), the agent keeps the cartoon, its caption (a line of text under the drawing, not part of the image) and the artist. Everything Else shows it at the top, with a link to the whole email, instead of an In brief list. If none arrived in the last 24 hours (e.g. at weekends), it's left out.
+- **Always show a newsletter:** in Admin's Sources panel, **Always show its newest post** (or `broadsheet source <id> --always-show`). Its newest post goes to the top of its section (above In brief) and of the Front Page, marked 📌 Always shown, until you've read it; after the next refresh it goes like any read article, until the next post arrives. Gemma's "not an article" never hides it. A daily letter, with a fixed section, is a typical use.
+- **The cartoon of the day:** for a newsletter set to **Show its cartoon of the day** (Admin's Sources panel, or `broadsheet source <id> --cartoon`), when its email has a "Today's Cartoon, by …" heading, the agent keeps the cartoon, its caption (a line of text under the drawing, not part of the image) and the artist. Everything Else shows it at the top, with a link to the whole email, instead of an In brief list. If none arrived in the last 24 hours (e.g. at weekends), it's left out. Turning the setting on also looks for a cartoon in that newsletter's current emails (migration 16 turned it on for newsletters that already had one).
 - **Story matching ignores dates:** a headline that's only a date ("November 26, 2026") no longer matches another newsletter's dated headline.
 - **On the Front Page, once:** what the Front Page shows (always-shown posts, the top 20 stories, the top 4 News in Brief) isn't repeated on the section pages; a section with nothing left loses its tab (Everything Else keeps it for the cartoon), and News in Brief's link reads "N more briefs".
 - **Always-shown posts get a compact panel** at the top of the Front Page, like the cartoon: the newsletter's name, the post's title, a summary of at most three sentences (taken from Gemma's summary), and **Read it →**.

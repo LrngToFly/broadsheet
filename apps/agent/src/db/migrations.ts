@@ -328,4 +328,9 @@ export const migrations: string[] = [
   ALTER TABLE sources ADD COLUMN always_show INTEGER NOT NULL DEFAULT 0; -- its newest post is pinned until you've read it
   ALTER TABLE items ADD COLUMN cartoon_json TEXT;  -- {imageUrl, alt, caption, artist} when the email has a cartoon of the day
   `,
+
+  /* 16: the cartoon of the day is a per-newsletter setting (2026-11-28) */ `
+  ALTER TABLE sources ADD COLUMN cartoon INTEGER NOT NULL DEFAULT 0; -- its emails' "Today's Cartoon" goes at the top of Everything Else
+  UPDATE sources SET cartoon = 1 WHERE id IN (SELECT DISTINCT source_id FROM items WHERE cartoon_json IS NOT NULL);
+  `,
 ];

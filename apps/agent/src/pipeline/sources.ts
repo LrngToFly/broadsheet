@@ -1,6 +1,9 @@
 // Editing a newsletter (Admin's Sources page, or `broadsheet source`; docs/phase-3.md A2). The database is the
 // master copy for sources: a change here sticks unless the source's text in the config file changes.
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { SourceFormat } from "@broadsheet/shared";
+import { extractCartoon } from "../content/cartoon.ts";
 import { transaction, type Db } from "../db/db.ts";
 import type { MailPort } from "./stage-a-email.ts";
 import { describeSplitWhen, setFormat, setSplitWhen, splitWhenOf, type SplitWhen } from "./split.ts";
@@ -16,6 +19,8 @@ export type SourceChanges = {
   splitWhen?: SplitWhen | null;
   /** Its newest post is always shown (at the top) until you've read it. */
   alwaysShow?: boolean;
+  /** Its emails' cartoon of the day ("Today's Cartoon, by …") goes at the top of Everything Else. */
+  cartoon?: boolean;
 };
 
 export type EditResult = { changed: string[]; moved: number; errors: string[] };
@@ -89,6 +94,24 @@ export async function editSource(
     if (was !== changes.alwaysShow) {
       db.prepare("UPDATE sources SET always_show = ? WHERE id = ?").run(changes.alwaysShow ? 1 : 0, id);
       result.changed.push(changes.alwaysShow ? "always shown: its newest post stays at the top until you've read it" : "no longer always shown");
+    }
+  }
+
+  if (changes.cartoon !== undefined) {
+    const was = (db.prepare("SELECT cartoon FROM sources WHERE id = ?").get(id) as { cartoon: number }).cartoon === 1;
+    if (was !== changes.cartoon) {
+      db.prepare("UPDATE sources SET cartoon = ? WHERE id = ?").run(changes.cartoon ? 1 : 0, id);
+      let found = 0;
+      if (changes.cartoon) {
+        // Its current emails, so today's cartoon shows on the next run rather than with the next email.
+        const items = db.prepare("SELECT id FROM items WHERE source_id = ? AND parent_id IS NULL AND cartoon_json IS NULL").all(id) as { id: string }[];
+        for (const it of items) {
+          const html = await readFile(join(opts.contentDir, it.id, "article.html"), "utf8").catch(() => "");
+          const c = html ? extractCartoon(html) : null;
+          if (c) (db.prepare("UPDATE items SET cartoon_json = ? WHERE id = ?").run(JSON.stringify(c), it.id), found++);
+        }
+      }
+      result.changed.push(changes.cartoon ? `shows its cartoon of the day${found ? ` (found ${found} in current emails)` : ""}` : "no longer shows its cartoon");
     }
   }
 

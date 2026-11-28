@@ -75,7 +75,8 @@ flowchart LR
 | [`apps/admin`](apps/admin) | Broadsheet Admin, the Mac menu-bar app (SwiftUI): status, sources, sections, email, rules, settings, data. |
 | [`packages/shared`](packages/shared) | Schemas shared by the agent and the reader (Zod): config, edition, actions, rules. |
 | [`PLAN.md`](PLAN.md) | The architecture and implementation plan, with every design decision. |
-| [`docs/`](docs) | What each phase built, in detail: [Phase 1](docs/phase-1.md) · [Phase 2](docs/phase-2.md) · [Phase 3](docs/phase-3.md). |
+| [`docs/`](docs) | The setup guide ([DEPLOY.md](docs/DEPLOY.md)), and what each phase built: [Phase 1](docs/phase-1.md) · [Phase 2](docs/phase-2.md) · [Phase 3](docs/phase-3.md) · [Phase 4](docs/phase-4.md). |
+| [`scripts/install.sh`](scripts/install.sh) | Sets up a Mac: checks it, installs what's missing with your OK, signs in, schedules the agent, builds Admin. |
 
 ## Getting around
 
@@ -91,7 +92,7 @@ pnpm agent run               # what the schedule runs every 15 minutes
 
 Every change Admin makes is also a `broadsheet` command (`sources`, `sections`, `rules`, `mail`, `settings`, `backups`, `eval` and more); `pnpm agent` on its own lists them.
 
-**Requirements:** a Mac (Apple silicon, 16 GB or more; built on an M4 with 24 GB), Node 26 and pnpm, Ollama with `gemma4:12b`, a free Outlook.com account for newsletters, a Microsoft Entra app registration (free), and Xcode for the Admin app. A step-by-step setup guide for your own copy is the next milestone.
+**Set up your own copy:** follow **[docs/DEPLOY.md](docs/DEPLOY.md)** (about an hour, mostly downloads). You'll need a Mac with Apple silicon and 16 GB or more, a GitHub account, a free Outlook.com account for newsletters and a free Microsoft app registration; `scripts/install.sh` sets up the Mac, asking before it installs anything.
 
 ## Status
 
@@ -101,6 +102,4 @@ Every change Admin makes is also a `broadsheet` command (`sources`, `sections`, 
 | 1 | The working paper: collect, summarize, file, publish, read on the phone, run unattended | ✅ |
 | 2 | Personalization: ratings, learning, hiding and rules, your own words, roundups, model comparison | ✅ |
 | 3 | Broadsheet Admin, the Mac app; following by URL; backups and crash safety | ✅ |
-| 4 | Ready to share: install script and guide so anyone can run their own copy | Next |
-
-Podcasts are deliberately out of scope; they'll be a separate app.
+| 4 | Ready to share: a setup guide and install script so anyone can run their own copy | In progress ([docs/phase-4.md](docs/phase-4.md)) |

@@ -22,6 +22,15 @@ public struct Locations: Sendable {
     }
 
     public var database: URL { home.appending(path: "broadsheet.db") }
+    public var config: URL { home.appending(path: "broadsheet.config.json") }
+
+    /// The reader's address from the config file (`readerUrl`), for "Open the Broadsheet"; nil if it isn't set.
+    public func readerURL() -> URL? {
+        guard let data = try? Data(contentsOf: config),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let s = json["readerUrl"] as? String, let url = URL(string: s), url.scheme?.hasPrefix("http") == true else { return nil }
+        return url
+    }
     public var runLock: URL { home.appending(path: "run.lock") }
     public var progress: URL { home.appending(path: "progress.json") }
     /// Written by the agent when it finds the database damaged.

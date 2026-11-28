@@ -275,7 +275,7 @@ async function cartoonOfTheDay(db: Db, now: Date, upload: (row: any) => Promise<
   const row = db
     .prepare(
       `SELECT i.*, coalesce(s.display_name, s.id) AS source_name FROM items i JOIN sources s ON s.id = i.source_id
-       WHERE i.cartoon_json IS NOT NULL AND i.published_at >= ? AND coalesce(i.hidden_by, '') != 'user' ORDER BY i.published_at DESC LIMIT 1`,
+       WHERE i.cartoon_json IS NOT NULL AND s.cartoon = 1 AND i.published_at >= ? AND coalesce(i.hidden_by, '') != 'user' ORDER BY i.published_at DESC LIMIT 1`,
     )
     .get(since) as any;
   if (!row) return null;

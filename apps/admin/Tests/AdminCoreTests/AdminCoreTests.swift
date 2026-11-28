@@ -105,11 +105,11 @@ import Testing
         CREATE TABLE sections (id TEXT, name TEXT, sort_order INTEGER);
         INSERT INTO sections VALUES ('gardening', 'Gardening', 1), ('current-events', 'Current Events', 0);
         CREATE TABLE sources (id TEXT, display_name TEXT, channel TEXT, status TEXT, format TEXT, looks_like TEXT, fixed_section_id TEXT,
-          last_post_at TEXT, origin TEXT, match_json TEXT, feed_url TEXT, site_url TEXT, unsubscribe_url TEXT, split_when TEXT, always_show INTEGER);
+          last_post_at TEXT, origin TEXT, match_json TEXT, feed_url TEXT, site_url TEXT, unsubscribe_url TEXT, split_when TEXT, always_show INTEGER, cartoon INTEGER);
         INSERT INTO sources VALUES
-          ('garden', 'Garden Letter', 'email', 'enabled', 'normal', 'roundup', 'gardening', '\(recent)', 'auto', '{"listId":"garden.substack.com"}', NULL, NULL, 'https://garden.example/unsub', NULL, 1),
-          ('quiet', NULL, 'email', 'muted', 'roundup', 'roundup', NULL, '\(old)', 'config', '{"sender":"hi@quiet.example"}', NULL, NULL, NULL, '{"weekend":true}', 0),
-          ('blog', 'A Blog', 'feed', 'enabled', 'normal', NULL, NULL, NULL, 'config', NULL, 'https://x/feed', 'https://x', NULL, NULL, 0);
+          ('garden', 'Garden Letter', 'email', 'enabled', 'normal', 'roundup', 'gardening', '\(recent)', 'auto', '{"listId":"garden.substack.com"}', NULL, NULL, 'https://garden.example/unsub', NULL, 1, 0),
+          ('quiet', NULL, 'email', 'muted', 'roundup', 'roundup', NULL, '\(old)', 'config', '{"sender":"hi@quiet.example"}', NULL, NULL, NULL, '{"weekend":true}', 0, 1),
+          ('blog', 'A Blog', 'feed', 'enabled', 'normal', NULL, NULL, NULL, 'config', NULL, 'https://x/feed', 'https://x', NULL, NULL, 0, 0);
         CREATE TABLE source_posts (item_id TEXT, source_id TEXT, published_at TEXT);
         INSERT INTO source_posts VALUES ('1', 'garden', '\(recent)'), ('2', 'garden', '\(recent)'), ('3', 'garden', '\(old)');
         CREATE TABLE preference_records (item_id TEXT, source_id TEXT, rating INTEGER);
@@ -127,6 +127,7 @@ import Testing
         #expect(garden.looksLikeRoundup)
         #expect(garden.unsubscribeURL == "https://garden.example/unsub")
         #expect(garden.alwaysShow && !s[2].alwaysShow)
+        #expect(s[2].cartoon && !garden.cartoon)
         #expect(!garden.unsubscribeCandidate) // rated 👍 and 👌
         #expect(garden.silentDays(now: now) == nil)
         let quiet = s[2]
@@ -302,5 +303,17 @@ import Testing
                              lastPost: nil, postsLast30Days: 0, averageRating: nil, ratings: 0, address: "", fromConfigFile: false, unsubscribeURL: nil)
         #expect(sourceEditArguments(from: s, name: "Letters", section: nil, format: .normal, included: true, alwaysShow: true) == ["source", "eve", "--always-show"])
         #expect(sourceEditArguments(from: s, name: "Letters", section: nil, format: .normal, included: true, alwaysShow: false) == [])
+        #expect(sourceEditArguments(from: s, name: "Letters", section: nil, format: .normal, included: true, cartoon: true) == ["source", "eve", "--cartoon"])
+    }
+}
+
+@Suite struct ReaderURLTests {
+    @Test func readsTheReaderAddressFromTheConfigFile() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let loc = Locations(home: dir, logs: dir, launchAgent: dir.appending(path: "x.plist"))
+        #expect(loc.readerURL() == nil)
+        try Data(#"{"microsoft":{"clientId":"x"},"readerUrl":"https://someone.github.io/broadsheet/"}"#.utf8).write(to: loc.config)
+        #expect(loc.readerURL()?.absoluteString == "https://someone.github.io/broadsheet/")
     }
 }

@@ -6,6 +6,8 @@ import { Config, Edition } from "@broadsheet/shared";
 import { openDb, syncConfig } from "../src/db/db.ts";
 import { extractCartoon } from "../src/content/cartoon.ts";
 import { publish } from "../src/pipeline/publish.ts";
+import { editSource } from "../src/pipeline/sources.ts";
+import type { MailPort } from "../src/pipeline/stage-a-email.ts";
 
 const cartoonEmail = (caption: string | null) => `<div><h2>More in Humor</h2><p>An essay.</p></div>
 <div><h1><span>Today’s Cartoon, by A. N. Artist</span></h1></div>
@@ -30,7 +32,7 @@ describe("publishing the cartoon and always-shown newsletters", () => {
     const config = Config.parse({ microsoft: { clientId: "11111111-2222-3333-4444-555555555555" } });
     const db = openDb(":memory:");
     syncConfig(db, config);
-    db.prepare("INSERT INTO sources (id, channel, display_name, status, origin, created_at, always_show) VALUES ('eve', 'email', 'Evening Letter', 'enabled', 'auto', 'x', 1), ('ny', 'email', 'Cartoon Daily', 'enabled', 'auto', 'x', 0), ('o', 'email', 'Other', 'enabled', 'auto', 'x', 0)").run();
+    db.prepare("INSERT INTO sources (id, channel, display_name, status, origin, created_at, always_show, cartoon) VALUES ('eve', 'email', 'Evening Letter', 'enabled', 'auto', 'x', 1, 0), ('ny', 'email', 'Cartoon Daily', 'enabled', 'auto', 'x', 0, 1), ('o', 'email', 'Other', 'enabled', 'auto', 'x', 0, 0)").run();
     const contentDir = mkdtempSync(join(tmpdir(), "bs-cartoon-"));
     const add = (id: string, source: string, at: string, html = "<p>Words.</p>", cartoon: object | null = null, interest = 50) => {
       db.prepare("INSERT INTO items (id, source_id, channel, title, published_at, created_at, ai_status, summary, interest, is_article, section_id, cartoon_json) VALUES (?, ?, 'email', ?, ?, 'x', 'done', 'A summary of it.', ?, 1, 'current-events', ?)")
@@ -42,7 +44,7 @@ describe("publishing the cartoon and always-shown newsletters", () => {
     const appFolder = { put: async () => ({ id: "x", size: 1 }), putJson: async (p: string, v: unknown) => ((edition = p === "edition.json" ? Edition.parse(v) : edition), { id: p, size: 1 }) };
     const fetchImage = (async () => new Response(new Uint8Array(20_000), { headers: { "content-type": "image/jpeg" } })) as unknown as typeof fetch;
     const pub = () => publish({ db, appFolder, config, contentDir, now: NOW, fetchImage });
-    return { db, add, pub, edition: () => edition! };
+    return { db, add, pub, contentDir, edition: () => edition! };
   }
 
   it("shows the newest cartoon from the last 24 hours, with its caption, from its cached image", async () => {
@@ -53,6 +55,30 @@ describe("publishing the cartoon and always-shown newsletters", () => {
     await t.pub();
     expect(t.edition().cartoon).toMatchObject({ caption: "“A caption.”", artist: "A. N. Artist", source: "Cartoon Daily", itemId: "ny-new" });
     expect(t.edition().cartoon!.image).toMatch(/^images\/[0-9a-f]{20}\.jpg$/);
+  });
+
+  it("shows cartoons only from newsletters set to show them", async () => {
+    const t = setup();
+    t.add("o-1", "o", "2026-11-27T12:00:00Z", cartoonEmail("“Elsewhere.”"), extractCartoon(cartoonEmail("“Elsewhere.”")));
+    await t.pub();
+    expect(t.edition().cartoon).toBeNull();
+    t.db.prepare("UPDATE sources SET cartoon = 1 WHERE id = 'o'").run();
+    await t.pub();
+    expect(t.edition().cartoon).toMatchObject({ caption: "“Elsewhere.”", itemId: "o-1" });
+  });
+
+  it("turning it on finds the cartoon in that newsletter's current emails", async () => {
+    const t = setup();
+    t.add("o-2", "o", "2026-11-27T12:00:00Z", cartoonEmail("“Found.”"));
+    const mail = {} as MailPort; // no emails move for this change
+    const r = await editSource(t.db, mail, "o", { cartoon: true }, { contentDir: t.contentDir, cutoff: "2026-11-20T00:00:00Z", now: NOW.toISOString() });
+    expect(r.changed).toEqual(["shows its cartoon of the day (found 1 in current emails)"]);
+    await t.pub();
+    expect(t.edition().cartoon).toMatchObject({ caption: "“Found.”", itemId: "o-2" });
+    const off = await editSource(t.db, mail, "o", { cartoon: false }, { contentDir: t.contentDir, cutoff: "2026-11-20T00:00:00Z", now: NOW.toISOString() });
+    expect(off.changed).toEqual(["no longer shows its cartoon"]);
+    await t.pub();
+    expect(t.edition().cartoon).toBeNull();
   });
 
   it("leaves it out when none came in the last 24 hours", async () => {

@@ -1,6 +1,6 @@
 # Phase 3 — Admin & sources
 
-Goal (from [PLAN.md §11](../PLAN.md#11-phased-delivery)): you manage everything without touching config files. **All seven milestones are built** (2026-11-27); the config file now only needs your Microsoft client ID. The Admin console is a native Mac app (SwiftUI) on the Mac mini, with a menu-bar item ([PLAN.md §8.2](../PLAN.md#82-admin-console-swiftui)).
+Goal (from [PLAN.md §10](../PLAN.md#10-phased-delivery)): you manage everything without touching config files. **All seven milestones are built** (2026-11-27); the config file now only needs your Microsoft client ID. The Admin console is a native Mac app (SwiftUI) on the Mac mini, with a menu-bar item ([PLAN.md §8.2](../PLAN.md#82-admin-console-swiftui)).
 
 | # | Milestone | You can… | Status |
 |---|---|---|---|

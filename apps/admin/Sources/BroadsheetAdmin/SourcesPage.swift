@@ -151,6 +151,7 @@ struct SourceEditor: View {
     @State private var included: Bool
     @State private var alwaysShow: Bool
     @State private var cartoon: Bool
+    @State private var checkEvery: Int
     @State private var splitSome: Bool
     @State private var split: SplitWhen
     @State private var working = false
@@ -169,12 +170,13 @@ struct SourceEditor: View {
         _included = State(initialValue: !source.muted)
         _alwaysShow = State(initialValue: source.alwaysShow)
         _cartoon = State(initialValue: source.cartoon)
+        _checkEvery = State(initialValue: source.checkEvery ?? CheckEvery.hour)
         _splitSome = State(initialValue: source.splitWhen != nil)
         _split = State(initialValue: source.splitWhen ?? SplitWhen())
     }
 
     private var args: [String] {
-        sourceEditArguments(from: source, name: name, section: section, format: format, included: included, splitWhen: splitSome ? split : nil, alwaysShow: alwaysShow, cartoon: cartoon)
+        sourceEditArguments(from: source, name: name, section: section, format: format, included: included, splitWhen: splitSome ? split : nil, alwaysShow: alwaysShow, cartoon: cartoon, checkEvery: source.channel == "feed" ? checkEvery : nil)
     }
 
     var body: some View {
@@ -195,6 +197,12 @@ struct SourceEditor: View {
                 Toggle("Include its emails", isOn: $included)
                 Toggle("Always show its newest post", isOn: $alwaysShow)
                     .help("At the top of its section and the Front Page until you've read it; then it goes until the next one arrives.")
+                if source.channel == "feed" {
+                    Picker("Check it", selection: $checkEvery) {
+                        ForEach(CheckEvery.options(including: source.checkEvery), id: \.self) { Text(CheckEvery.label($0)).tag($0) }
+                    }
+                    .help("How often the agent looks for new posts in this feed.")
+                }
                 Toggle("Show its cartoon of the day", isOn: $cartoon)
                     .help("When its email has a \u{201C}Today's Cartoon\u{201D} heading, the cartoon and its caption go at the top of Everything Else.")
             } footer: {
@@ -265,7 +273,7 @@ struct SourceEditor: View {
             Section {
                 HStack {
                     Button("Revert") {
-                        name = source.name; section = source.fixedSection; format = source.format; included = !source.muted; alwaysShow = source.alwaysShow; cartoon = source.cartoon
+                        name = source.name; section = source.fixedSection; format = source.format; included = !source.muted; alwaysShow = source.alwaysShow; cartoon = source.cartoon; checkEvery = source.checkEvery ?? CheckEvery.hour
                         splitSome = source.splitWhen != nil; split = source.splitWhen ?? SplitWhen()
                     }
                         .disabled(args.isEmpty || working)

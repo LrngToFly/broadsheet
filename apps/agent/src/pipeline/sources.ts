@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SourceFormat } from "@broadsheet/shared";
 import { extractCartoon } from "../content/cartoon.ts";
+import { describeCheckEvery } from "./stage-a-feeds.ts";
 import { transaction, type Db } from "../db/db.ts";
 import type { MailPort } from "./stage-a-email.ts";
 import { describeSplitWhen, setFormat, setSplitWhen, splitWhenOf, type SplitWhen } from "./split.ts";
@@ -21,6 +22,8 @@ export type SourceChanges = {
   alwaysShow?: boolean;
   /** Its emails' cartoon of the day ("Today's Cartoon, by …") goes at the top of Everything Else. */
   cartoon?: boolean;
+  /** A followed feed: seconds between checks (null: every hour). */
+  checkEvery?: number | null;
 };
 
 export type EditResult = { changed: string[]; moved: number; errors: string[] };
@@ -112,6 +115,19 @@ export async function editSource(
         }
       }
       result.changed.push(changes.cartoon ? `shows its cartoon of the day${found ? ` (found ${found} in current emails)` : ""}` : "no longer shows its cartoon");
+    }
+  }
+
+  if (changes.checkEvery !== undefined) {
+    const row = db.prepare("SELECT channel, check_every_s FROM sources WHERE id = ?").get(id) as { channel: string; check_every_s: number | null };
+    if (row.channel !== "feed") result.errors.push("only a feed you follow by URL has a check interval");
+    else if ((row.check_every_s ?? null) !== (changes.checkEvery ?? null)) {
+      db.prepare("UPDATE sources SET check_every_s = ? WHERE id = ?").run(changes.checkEvery ?? null, id);
+      // Sooner than the old schedule said: check by then. Later: the new interval starts after the next check.
+      const soonest = new Date(Date.parse(opts.now) + (changes.checkEvery ?? 3600) * 1000).toISOString();
+      // Any back-off from earlier failures starts again from the new interval.
+      db.prepare("UPDATE feed_state SET next_poll_at = min(next_poll_at, ?), poll_interval_s = ? WHERE source_id = ?").run(soonest, changes.checkEvery ?? 3600, id);
+      result.changed.push(`checked ${describeCheckEvery(changes.checkEvery ?? null)}`);
     }
   }
 

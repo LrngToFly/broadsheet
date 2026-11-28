@@ -7,10 +7,31 @@ import { writeFileAtomic } from "../backup.ts";
 import type { Config } from "@broadsheet/shared";
 import { transaction, type Db } from "../db/db.ts";
 import { cleanArticle, stripTracking } from "../content/clean.ts";
-import { discoverFeed, parseFeed, USER_AGENT, type FeedEntry } from "../feeds/feed.ts";
+import { discoverFeed, FEED_ACCEPT, parseFeed, USER_AGENT, type FeedEntry } from "../feeds/feed.ts";
 import { fetchWebArticle } from "../feeds/web.ts";
 
 const HOUR = 3600;
+
+/** How often a feed can be checked: from every hour to once a week. */
+export const CHECK_EVERY_CHOICES = [1, 6, 12, 24].map((h) => h * HOUR);
+export const MIN_CHECK_EVERY = HOUR;
+export const MAX_CHECK_EVERY = 7 * 24 * HOUR;
+
+/** "12h", "1d", "90m" → seconds; null if it isn't one, or is outside an hour to a week. */
+export function parseCheckEvery(text: string): number | null {
+  const m = text.trim().toLowerCase().match(/^(\d+)\s*(m|min|h|hours?|d|days?)$/);
+  if (!m) return null;
+  const s = Number(m[1]) * (m[2]!.startsWith("m") ? 60 : m[2]!.startsWith("h") ? HOUR : 24 * HOUR);
+  return s >= MIN_CHECK_EVERY && s <= MAX_CHECK_EVERY ? s : null;
+}
+
+/** 43200 → "every 12 hours". */
+export function describeCheckEvery(seconds: number | null): string {
+  const s = seconds ?? HOUR;
+  if (s % (24 * HOUR) === 0) return s === 24 * HOUR ? "once a day" : `every ${s / (24 * HOUR)} days`;
+  if (s % HOUR === 0) return s === HOUR ? "every hour" : `every ${s / HOUR} hours`;
+  return `every ${Math.round(s / 60)} minutes`;
+}
 /** Fewer words than this and the feed item is probably a teaser: try the web page. */
 export const TEASER_WORDS = 150;
 
@@ -36,7 +57,7 @@ export async function stageAFeeds(opts: {
 
   const due = db
     .prepare(
-      `SELECT s.id, s.site_url, s.feed_url, f.etag, f.last_modified, f.next_poll_at, f.poll_interval_s
+      `SELECT s.id, s.site_url, s.feed_url, s.check_every_s, f.etag, f.last_modified, f.next_poll_at, f.poll_interval_s
        FROM sources s LEFT JOIN feed_state f ON f.source_id = s.id
        WHERE s.channel = 'feed' AND s.status = 'enabled'`,
     )
@@ -47,7 +68,8 @@ export async function stageAFeeds(opts: {
     if (!opts.force && s.next_poll_at && s.next_poll_at > nowIso) continue;
     const outcome: FeedOutcome = { source: s.id, status: "", added: [] };
     outcomes.push(outcome);
-    const interval: number = s.poll_interval_s ?? HOUR;
+    const every: number = s.check_every_s ?? HOUR; // your choice for this feed
+    const interval: number = s.poll_interval_s ?? every;
     const schedule = (seconds: number, error: string | null, etag?: string | null, lastModified?: string | null) =>
       db.prepare(
         `INSERT INTO feed_state (source_id, etag, last_modified, next_poll_at, poll_interval_s, last_error) VALUES (?, ?, ?, ?, ?, ?)
@@ -66,12 +88,12 @@ export async function stageAFeeds(opts: {
         entries = found.feed.entries;
       } else {
         const res = await doFetch(s.feed_url, {
-          headers: { "User-Agent": USER_AGENT, ...(s.etag ? { "If-None-Match": s.etag } : {}), ...(s.last_modified ? { "If-Modified-Since": s.last_modified } : {}) },
+          headers: { "User-Agent": USER_AGENT, Accept: FEED_ACCEPT, ...(s.etag ? { "If-None-Match": s.etag } : {}), ...(s.last_modified ? { "If-Modified-Since": s.last_modified } : {}) },
           signal: AbortSignal.timeout(20_000),
         });
         if (res.status === 304) {
           outcome.status = "no change";
-          schedule(interval, null);
+          schedule(every, null);
           continue;
         }
         if (!res.ok) throw new Error(`feed returned ${res.status}`);
@@ -121,12 +143,12 @@ export async function stageAFeeds(opts: {
         outcome.added.push(e.title);
       }
       outcome.status = outcome.added.length ? `${outcome.added.length} new` : "nothing new";
-      schedule(HOUR, null, etag, lastModified);
+      schedule(every, null, etag, lastModified);
     } catch (e) {
       outcome.error = (e as Error).message;
       outcome.status = "error";
-      // Back off: 1 h, 2 h, 4 h … up to a day.
-      schedule(Math.min(24 * HOUR, Math.max(HOUR, interval * 2)), outcome.error);
+      // Back off: twice as long each time (1 h, 2 h, 4 h …), up to a day or the feed's own interval if that's longer.
+      schedule(Math.min(Math.max(24 * HOUR, every), Math.max(every, interval * 2)), outcome.error);
     }
   }
   return outcomes;

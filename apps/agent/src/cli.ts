@@ -19,7 +19,7 @@ import { aiMayRun, inOvernightWindow, sampleActivity } from "./activity.ts";
 import { Mail } from "./microsoft/mail.ts";
 import { stageAEmail, type EmailOutcome } from "./pipeline/stage-a-email.ts";
 import { hiddenCards, publish } from "./pipeline/publish.ts";
-import { stageAFeeds } from "./pipeline/stage-a-feeds.ts";
+import { parseCheckEvery, stageAFeeds } from "./pipeline/stage-a-feeds.ts";
 import { discoverFeed } from "./feeds/feed.ts";
 import { stageB } from "./pipeline/stage-b.ts";
 import { learn } from "./pipeline/affinity.ts";
@@ -553,9 +553,16 @@ async function format(sourceId: string | undefined, value: string | undefined) {
   });
 }
 
+/** --check-every 12h → seconds (an hour to a week); "1h" means the default, stored as null. */
+function checkEveryFlag(): number | null {
+  const s = parseCheckEvery(flag("check-every") ?? "");
+  if (s === null) throw new Error("--check-every takes a time from 1h to 7d, e.g. 1h, 6h, 12h or 1d.");
+  return s === 3600 ? null : s;
+}
+
 /** Change one newsletter (Admin's Sources page runs this). */
 async function source(id: string | undefined) {
-  const usage = "Usage: broadsheet source <id> [--name \"New name\"] [--section <section id>|none] [--format normal|roundup|multi-section] [--split-when always|'<json>'] [--always-show|--not-always-show] [--cartoon|--no-cartoon] [--mute|--unmute]";
+  const usage = "Usage: broadsheet source <id> [--name \"New name\"] [--section <section id>|none] [--format normal|roundup|multi-section] [--split-when always|'<json>'] [--always-show|--not-always-show] [--cartoon|--no-cartoon] [--check-every 1h|6h|12h|1d] [--mute|--unmute]";
   if (!id || id.startsWith("--")) throw new Error(usage);
   const changes: SourceChanges = {};
   if (flag("name") !== undefined) changes.name = flag("name");
@@ -584,6 +591,7 @@ async function source(id: string | undefined) {
   if (has("not-always-show")) changes.alwaysShow = false;
   if (has("cartoon")) changes.cartoon = true;
   if (has("no-cartoon")) changes.cartoon = false;
+  if (flag("check-every") !== undefined) changes.checkEvery = checkEveryFlag();
   if (has("mute")) changes.muted = true;
   if (has("unmute")) changes.muted = false;
   if (!Object.keys(changes).length) throw new Error(usage);
@@ -749,7 +757,7 @@ async function rule(sub: string | undefined, ruleJson: string | undefined) {
 
 /** Follow a site's feed: --preview shows its latest posts first. */
 async function followCmd(url: string | undefined) {
-  if (!url || url.startsWith("--")) throw new Error('Usage: broadsheet follow <site address> [--preview] [--name "…"] [--section <id>] [--json]');
+  if (!url || url.startsWith("--")) throw new Error('Usage: broadsheet follow <site address> [--preview] [--name "…"] [--section <id>] [--check-every 1h|6h|12h|1d] [--json]');
   await withConfigAndDb(async (_config, db) => {
     if (has("preview")) {
       const pv = await previewFeed(url);
@@ -761,7 +769,8 @@ async function followCmd(url: string | undefined) {
       }
       return;
     }
-    const r = await follow(db, url, { name: flag("name"), section: flag("section") ?? null, now: new Date().toISOString() });
+    const checkEvery = flag("check-every") !== undefined ? checkEveryFlag() : null;
+    const r = await follow(db, url, { name: flag("name"), section: flag("section") ?? null, now: new Date().toISOString(), checkEvery });
     if (has("json")) console.log(JSON.stringify({ id: r.id, name: r.name }));
     else console.log(`Following "${r.name}" (id ${r.id}). Its posts from the last few days arrive on the next run.`);
   });
@@ -1210,12 +1219,12 @@ try {
                             Gemma summarizes and files pending items; only while you're
                             away unless --force
   feed-check <url>          find a site's feed and preview it, without following it
-  follow <url> [--preview] [--name "…"] [--section <id>]
+  follow <url> [--preview] [--name "…"] [--section <id>] [--check-every 12h]
                             follow a site's feed (no email sign-up)
   switch-to-feed <id> [--url <site>] [--preview]
                             get an email newsletter from its feed instead
   sources                   your newsletters, their formats, and which look like roundups
-  source <id> [--name "…"] [--section <id>|none] [--format …] [--mute|--unmute] [--always-show|--not-always-show] [--cartoon|--no-cartoon]
+  source <id> [--name "…"] [--section <id>|none] [--format …] [--mute|--unmute] [--always-show|--not-always-show] [--cartoon|--no-cartoon] [--check-every 12h]
          [--split-when always|'{"subject":"…","weekend":true,"looksLike":true}']
                             change one newsletter (current items and emails follow a new section)
   format <id> <format>      normal, roundup (each story a brief) or multi-section (each

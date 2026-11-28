@@ -46,7 +46,8 @@ async function stable(path: string): Promise<Response> {
   const hit = await cache.match(cacheKey(path));
   if (hit) return hit;
   const res = await download(path);
-  await cache.put(cacheKey(path), res.clone());
+  // A full cache (a phone's storage is limited) mustn't stop it being shown; it just isn't kept for offline.
+  await cache.put(cacheKey(path), res.clone()).catch(() => {});
   return res;
 }
 

@@ -105,11 +105,11 @@ import Testing
         CREATE TABLE sections (id TEXT, name TEXT, sort_order INTEGER);
         INSERT INTO sections VALUES ('gardening', 'Gardening', 1), ('current-events', 'Current Events', 0);
         CREATE TABLE sources (id TEXT, display_name TEXT, channel TEXT, status TEXT, format TEXT, looks_like TEXT, fixed_section_id TEXT,
-          last_post_at TEXT, origin TEXT, match_json TEXT, feed_url TEXT, site_url TEXT, unsubscribe_url TEXT, split_when TEXT, always_show INTEGER, cartoon INTEGER);
+          last_post_at TEXT, origin TEXT, match_json TEXT, feed_url TEXT, site_url TEXT, unsubscribe_url TEXT, split_when TEXT, always_show INTEGER, cartoon INTEGER, check_every_s INTEGER);
         INSERT INTO sources VALUES
-          ('garden', 'Garden Letter', 'email', 'enabled', 'normal', 'roundup', 'gardening', '\(recent)', 'auto', '{"listId":"garden.substack.com"}', NULL, NULL, 'https://garden.example/unsub', NULL, 1, 0),
-          ('quiet', NULL, 'email', 'muted', 'roundup', 'roundup', NULL, '\(old)', 'config', '{"sender":"hi@quiet.example"}', NULL, NULL, NULL, '{"weekend":true}', 0, 1),
-          ('blog', 'A Blog', 'feed', 'enabled', 'normal', NULL, NULL, NULL, 'config', NULL, 'https://x/feed', 'https://x', NULL, NULL, 0, 0);
+          ('garden', 'Garden Letter', 'email', 'enabled', 'normal', 'roundup', 'gardening', '\(recent)', 'auto', '{"listId":"garden.substack.com"}', NULL, NULL, 'https://garden.example/unsub', NULL, 1, 0, NULL),
+          ('quiet', NULL, 'email', 'muted', 'roundup', 'roundup', NULL, '\(old)', 'config', '{"sender":"hi@quiet.example"}', NULL, NULL, NULL, '{"weekend":true}', 0, 1, NULL),
+          ('blog', 'A Blog', 'feed', 'enabled', 'normal', NULL, NULL, NULL, 'config', NULL, 'https://x/feed', 'https://x', NULL, NULL, 0, 0, 43200);
         CREATE TABLE source_posts (item_id TEXT, source_id TEXT, published_at TEXT);
         INSERT INTO source_posts VALUES ('1', 'garden', '\(recent)'), ('2', 'garden', '\(recent)'), ('3', 'garden', '\(old)');
         CREATE TABLE preference_records (item_id TEXT, source_id TEXT, rating INTEGER);
@@ -128,6 +128,7 @@ import Testing
         #expect(garden.unsubscribeURL == "https://garden.example/unsub")
         #expect(garden.alwaysShow && !s[2].alwaysShow)
         #expect(s[2].cartoon && !garden.cartoon)
+        #expect(s[0].checkEvery == 43200 && garden.checkEvery == nil)
         #expect(!garden.unsubscribeCandidate) // rated 👍 and 👌
         #expect(garden.silentDays(now: now) == nil)
         let quiet = s[2]
@@ -304,6 +305,10 @@ import Testing
         #expect(sourceEditArguments(from: s, name: "Letters", section: nil, format: .normal, included: true, alwaysShow: true) == ["source", "eve", "--always-show"])
         #expect(sourceEditArguments(from: s, name: "Letters", section: nil, format: .normal, included: true, alwaysShow: false) == [])
         #expect(sourceEditArguments(from: s, name: "Letters", section: nil, format: .normal, included: true, cartoon: true) == ["source", "eve", "--cartoon"])
+        #expect(sourceEditArguments(from: s, name: "Letters", section: nil, format: .normal, included: true, checkEvery: 43200) == ["source", "eve", "--check-every", "12h"])
+        #expect(sourceEditArguments(from: s, name: "Letters", section: nil, format: .normal, included: true, checkEvery: 3600) == [])
+        #expect(CheckEvery.label(43200) == "Every 12 hours" && CheckEvery.label(86400) == "Once a day" && CheckEvery.label(3600) == "Every hour")
+        #expect(CheckEvery.argument(86400) == "1d" && CheckEvery.options(including: 7200) == [3600, 7200, 21600, 43200, 86400])
     }
 }
 

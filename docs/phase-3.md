@@ -73,7 +73,7 @@ The script compiles the package in release mode with Xcode's tools, wraps the pr
 
 ## A5: Following and feeds
 
-- **Follow by URL** (Sources page toolbar): paste a site's address, **Preview** shows its latest posts, then pick a name and section and **Follow**. No email sign-up; the agent checks the feed every hour. From Terminal: `broadsheet follow <url> [--preview] [--name "…"] [--section <id>]`. Sites with no feed (LinkedIn and some company sites, for example) say so; subscribe by email instead where they offer it.
+- **Follow by URL** (Sources page toolbar): paste a site's address, **Preview** shows its latest posts, then pick a name, a section and how often to check it (**Check it**: every hour, every 6 or 12 hours, or once a day) and **Follow**. RSS, Atom and JSON Feed all work. No email sign-up. From Terminal: `broadsheet follow <url> [--preview] [--name "…"] [--section <id>] [--check-every 12h]`; a feed's interval can be changed later in its panel, or with `broadsheet source <id> --check-every 1d`. Sites with no feed (LinkedIn and some company sites, for example) say so; subscribe by email instead where they offer it.
 - **Switch to its feed** (in an email newsletter's panel): the agent guesses its website from its posts (or a Substack list), previews the feed, and switches. It stays the same newsletter, with its name, section, ratings and history. Emails still arriving before you unsubscribe count as it, and a post that comes both ways is kept once. Afterwards it offers the unsubscribe link. From Terminal: `broadsheet switch-to-feed <id> [--url <site>] [--preview]`.
 - **Unsubscribe helper:** the agent keeps each newsletter's unsubscribe link from its emails (the `List-Unsubscribe` header: a web page if there is one, else an email address). **Unsubscribe…** in its panel opens that page in your browser, or an unsubscribe email in Mail; you confirm it there. Newsletters you rate 👎 more often than not (3 or more ratings) get an **Unsubscribe?** badge, and the **👎 Often** filter lists them. Links are collected from new emails, so they fill in over a few days.
 - **Already in place:** the best version of a post (an email and a feed copy of the same post are kept once, the fuller one; a feed teaser is replaced by its web page when that's fuller) and staleness (A2's **Silent** badge with **Turn it off**).
@@ -113,4 +113,11 @@ The Mac mini is also a personal computer, so a run can be cut off by a power cut
 - **Article files** are written to a temporary file and then renamed into place, so a cut can't leave half an article.
 - **An email stranded by a cut** (recorded, but the cut came before it was moved out of the Inbox, or before its text was written) is repaired on a later run: filed where its record says, or read again from scratch if its text is missing. Only emails recorded in the last day, and only once each, so an email you drag back to the Inbox yourself is left alone.
 - **Time Machine** isn't set up on this Mac; setting it up with any external drive would protect everything else on it too.
+
+## Bigger and more images, JSON feeds, and how often a feed is checked (2026-11-28)
+
+- **Images:** an article keeps up to 60 images (it was 25, and images that failed to download used to count), each up to 15 MB (it was 4 MB), and up to 150 MB in all. A weather newsletter with 48 images, eight of them 5–7 MB animated maps, had lost 31; now it keeps them all. Files over 4 MB go up to OneDrive in 5 MB pieces through an upload session.
+- **In the reader,** an article's images now load as you scroll to them, not all at once, and an image a full phone cache can't keep is still shown.
+- **JSON Feed** (jsonfeed.org, versions 1.0 and 1.1) is read as well as RSS and Atom, and found from a site's page or `/feed.json`.
+- **Check it:** each followed feed has its own interval, every hour by default (migration 17: `sources.check_every_s`). Making it shorter brings the next check forward; a failing feed backs off from its own interval.
 

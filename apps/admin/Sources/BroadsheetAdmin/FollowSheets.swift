@@ -13,6 +13,7 @@ struct FollowSheet: View {
     @State private var preview: FeedPreview?
     @State private var name = ""
     @State private var section: String?
+    @State private var checkEvery = CheckEvery.hour
     @State private var working = false
     @State private var error: String?
 
@@ -26,7 +27,7 @@ struct FollowSheet: View {
                         Button("Preview") { Task { await look() } }.disabled(url.trimmingCharacters(in: .whitespaces).isEmpty || working)
                     }
                 } footer: {
-                    Text("Substack, Ghost, Medium, WordPress, beehiiv and most blogs have a feed. No email sign-up: the agent checks it every hour.")
+                    Text("Substack, Ghost, Medium, WordPress, beehiiv and most blogs have a feed (RSS, Atom or JSON Feed). No email sign-up: the agent checks it as often as you choose.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if let p = preview {
@@ -40,6 +41,9 @@ struct FollowSheet: View {
                         Picker("Section", selection: $section) {
                             Text("Gemma chooses").tag(String?.none)
                             ForEach(sections) { Text($0.name).tag(Optional($0.id)) }
+                        }
+                        Picker("Check it", selection: $checkEvery) {
+                            ForEach(CheckEvery.choices, id: \.self) { Text(CheckEvery.label($0)).tag($0) }
                         }
                     }
                 }
@@ -76,6 +80,7 @@ struct FollowSheet: View {
         defer { working = false }
         var args = ["follow", url, "--name", name.trimmingCharacters(in: .whitespaces), "--json"]
         if let section { args += ["--section", section] }
+        if checkEvery != CheckEvery.hour { args += ["--check-every", CheckEvery.argument(checkEvery)] }
         guard let r = await agent.run(args) else { error = agent.lastError; return }
         if decodeAnswer(FollowResult.self, from: r.output) != nil { close(true) } else { error = r.output.trimmingCharacters(in: .whitespacesAndNewlines) }
     }

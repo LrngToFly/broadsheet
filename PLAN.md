@@ -85,7 +85,7 @@ The PWA's per-person settings, mainly the Entra client ID, aren't secret. They'r
 | | **Email sources** | **Direct feeds** |
 |---|---|---|
 | How you add one | Subscribe using the newsletter account's address. That's it: everything in that Inbox is included by default ([§3.2](#32-choosing-which-emails-to-include)). | Paste the author's URL in Admin and click **Follow**. No email signup. |
-| What arrives | The email itself, in the newsletter account's Inbox | New posts from the site's RSS/Atom feed |
+| What arrives | The email itself, in the newsletter account's Inbox | New posts from the site's feed (RSS, Atom or JSON Feed) |
 | After 3–4 days | The email **stays in the newsletter mailbox**, filed in its section folder. The Broadsheet deletes its own copy of the content. | The post is deleted. |
 | Paid posts | Yes: the full paid post is in the email | Free posts only; paid posts arrive as previews |
 | Best for | Authors you pay for, senders with no feed, and emails you want kept in Outlook | Free authors you'd rather not get email from |
@@ -134,12 +134,13 @@ In Admin, choose **Follow by URL** and paste an author's or publication's addres
 | beehiiv | The publication's RSS feed, if the author has turned it on |
 | Medium | `medium.com/feed/@author` or `/feed/<publication>` |
 | WordPress and most blogs | `/feed/`, or the page's `<link rel="alternate" type="application/rss+xml">` |
+| Sites with a JSON Feed | The page's `<link rel="alternate" type="application/feed+json">`, or `/feed.json` |
 | Anything else | Feed discovery from the page's links; otherwise it reports "no feed found" |
 
 **No feed?** Admin says so and suggests subscribing by email with the newsletter account instead. Scraping pages that have no feed is possible but brittle, so it isn't in the initial plan.
 
 **Polling:**
-- Each feed is checked about hourly with `ETag`/`If-Modified-Since`, so a feed with nothing new costs almost nothing.
+- Each feed is checked every hour by default, or as often as you choose for it (every 6 or 12 hours, or once a day), with `ETag`/`If-Modified-Since`, so a feed with nothing new costs almost nothing.
 - Feeds that post rarely are checked less often, down to a few times a day.
 - When you first follow a feed, the last few days of posts are pulled in.
 - The feed also supplies each source's **latest post date** in Admin.

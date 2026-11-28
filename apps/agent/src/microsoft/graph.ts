@@ -13,7 +13,8 @@ export class GraphError extends Error {
 
 type GraphOptions = { maxAttempts?: number; sleep?: (ms: number) => Promise<void>; fetch?: typeof fetch };
 
-type Init = { method?: string; body?: unknown; headers?: Record<string, string>; raw?: boolean };
+/** noAuth: for OneDrive's pre-authorized upload URLs, which refuse a sign-in header. */
+type Init = { method?: string; body?: unknown; headers?: Record<string, string>; raw?: boolean; noAuth?: boolean };
 
 export class Graph {
   private readonly token: () => Promise<string>;
@@ -33,10 +34,10 @@ export class Graph {
 
     for (let attempt = 1; ; attempt++) {
       const isJsonBody = init.body !== undefined && typeof init.body !== "string" && !(init.body instanceof Uint8Array);
-      const res = await doFetch(url, {
+      const res: Response = await doFetch(url, {
         method: init.method ?? "GET",
         headers: {
-          Authorization: `Bearer ${await this.token()}`,
+          ...(init.noAuth ? {} : { Authorization: `Bearer ${await this.token()}` }),
           ...(isJsonBody ? { "Content-Type": "application/json" } : {}),
           ...init.headers,
         },

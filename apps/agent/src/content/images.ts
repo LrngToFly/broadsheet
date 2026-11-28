@@ -6,8 +6,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseHTML } from "linkedom";
 
-export const MAX_IMAGES = 25;
-export const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // OneDrive's simple-upload limit
+/** Images kept per article (weather and chart newsletters can carry 50). Failed downloads don't count. */
+export const MAX_IMAGES = 60;
+/** Per image: animated weather maps run to 6–7 MB. Over 4 MB they go up to OneDrive in pieces (onedrive.ts). */
+export const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+/** Per article, so one huge email can't fill the OneDrive folder or a phone's data plan. */
+export const MAX_ARTICLE_IMAGE_BYTES = 150 * 1024 * 1024;
+/** Downloads tried per article, counting failures, so a page of broken links can't take all day. */
+const MAX_ATTEMPTS = 100;
 
 const EXT: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -36,15 +42,21 @@ export async function cacheImages(
   const { document } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
   const images: CachedImage[] = [];
   const byUrl = new Map<string, CachedImage | null>();
+  let total = 0;
   await mkdir(join(dir, "images"), { recursive: true });
 
   for (const img of [...document.querySelectorAll("img")]) {
     const url = img.getAttribute("src") ?? "";
-    if (!/^https?:\/\//i.test(url) || byUrl.size >= MAX_IMAGES) {
+    const full = images.length >= MAX_IMAGES || byUrl.size >= MAX_ATTEMPTS || total >= MAX_ARTICLE_IMAGE_BYTES;
+    if (!/^https?:\/\//i.test(url) || (full && !byUrl.has(url))) {
       img.remove();
       continue;
     }
-    if (!byUrl.has(url)) byUrl.set(url, await download(url, dir, doFetch));
+    if (!byUrl.has(url)) {
+      const got = await download(url, dir, doFetch, Math.min(MAX_IMAGE_BYTES, MAX_ARTICLE_IMAGE_BYTES - total));
+      if (got) total += got.bytes;
+      byUrl.set(url, got);
+    }
     const cached = byUrl.get(url);
     if (!cached) {
       img.remove();
@@ -62,16 +74,16 @@ export async function cacheImages(
   return { html: document.body.innerHTML, images, hero };
 }
 
-async function download(url: string, dir: string, doFetch: typeof fetch): Promise<CachedImage | null> {
+async function download(url: string, dir: string, doFetch: typeof fetch, maxBytes: number): Promise<CachedImage | null> {
   try {
-    const res = await doFetch(url, { signal: AbortSignal.timeout(15_000), headers: { "User-Agent": "Mozilla/5.0 (Macintosh) TheBroadsheet/1.0" } });
+    const res = await doFetch(url, { signal: AbortSignal.timeout(60_000), headers: { "User-Agent": "Mozilla/5.0 (Macintosh) TheBroadsheet/1.0" } });
     const type = (res.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
     const ext = EXT[type];
     if (!res.ok || !ext) return null;
     const declared = Number(res.headers.get("content-length") ?? 0);
-    if (declared > MAX_IMAGE_BYTES) return null;
+    if (declared > maxBytes) return null;
     const body = new Uint8Array(await res.arrayBuffer());
-    if (body.byteLength > MAX_IMAGE_BYTES || body.byteLength === 0) return null;
+    if (body.byteLength > maxBytes || body.byteLength === 0) return null;
     const path = imageName(url, ext);
     const file = join(dir, path);
     await writeFile(file, body);

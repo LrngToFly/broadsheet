@@ -314,6 +314,7 @@ function ArticleBody({ content }: { content: string }) {
 
   useEffect(() => {
     let live = true;
+    let observer: IntersectionObserver | null = null;
     setError(null);
     loadArticle(content).then(
       (html) => {
@@ -324,14 +325,29 @@ function ArticleBody({ content }: { content: string }) {
           a.target = "_blank";
           a.rel = "noopener noreferrer";
         }
-        for (const img of body.current.querySelectorAll<HTMLImageElement>("img[data-src]")) {
-          imageUrl(img.dataset.src!).then((u) => (img.src = u), () => img.remove());
+        // Each image is fetched as it comes near the screen, so a 50-image email doesn't download all at once.
+        const show = (img: HTMLImageElement) => imageUrl(img.dataset.src!).then((u) => (img.src = u), () => img.remove());
+        const imgs = [...body.current.querySelectorAll<HTMLImageElement>("img[data-src]")];
+        if (typeof IntersectionObserver === "undefined") imgs.forEach(show);
+        else {
+          observer = new IntersectionObserver(
+            (entries, o) => {
+              for (const e of entries) if (e.isIntersecting) (o.unobserve(e.target), show(e.target as HTMLImageElement));
+            },
+            { rootMargin: "800px 0px" },
+          );
+          for (const img of imgs) {
+            img.style.minHeight = "8rem"; // room to scroll past before it loads
+            img.addEventListener("load", () => (img.style.minHeight = ""), { once: true });
+            observer.observe(img);
+          }
         }
       },
       (e: Error) => live && setError(e.message),
     );
     return () => {
       live = false;
+      observer?.disconnect();
     };
   }, [content]);
 

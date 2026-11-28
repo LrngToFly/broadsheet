@@ -333,4 +333,8 @@ export const migrations: string[] = [
   ALTER TABLE sources ADD COLUMN cartoon INTEGER NOT NULL DEFAULT 0; -- its emails' "Today's Cartoon" goes at the top of Everything Else
   UPDATE sources SET cartoon = 1 WHERE id IN (SELECT DISTINCT source_id FROM items WHERE cartoon_json IS NOT NULL);
   `,
+
+  /* 17: how often a followed feed is checked (2026-11-28) */ `
+  ALTER TABLE sources ADD COLUMN check_every_s INTEGER; -- seconds between checks of a feed; NULL: every hour
+  `,
 ];

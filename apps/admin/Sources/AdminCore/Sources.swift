@@ -69,6 +69,8 @@ public struct SourceRecord: Sendable, Hashable, Identifiable {
     public var alwaysShow: Bool = false
     /// Its emails' cartoon of the day ("Today's Cartoon, by …") goes at the top of Everything Else.
     public var cartoon: Bool = false
+    /// A followed feed: seconds between checks (nil: every hour).
+    public var checkEvery: Int? = nil
 
     public var muted: Bool { status == "muted" }
     /// You rate it 👎 often (3 or more ratings, averaging below −0.3): the unsubscribe helper suggests it.
@@ -96,7 +98,7 @@ extension Database {
         return try query(
             """
             SELECT s.id, coalesce(s.display_name, s.id) AS name, s.display_name, s.channel, s.status, s.format, s.looks_like,
-                   s.fixed_section_id, s.last_post_at, s.origin, s.match_json, s.feed_url, s.site_url, s.unsubscribe_url, s.split_when, s.always_show, s.cartoon,
+                   s.fixed_section_id, s.last_post_at, s.origin, s.match_json, s.feed_url, s.site_url, s.unsubscribe_url, s.split_when, s.always_show, s.cartoon, s.check_every_s,
                    (SELECT count(*) FROM source_posts p WHERE p.source_id = s.id AND p.published_at >= ?) AS posts30,
                    (SELECT avg(rating) FROM preference_records r WHERE r.source_id = s.id AND r.rating IS NOT NULL) AS avg_rating,
                    (SELECT count(rating) FROM preference_records r WHERE r.source_id = s.id) AS ratings
@@ -126,6 +128,7 @@ extension SourceRecord {
         unsubscribeURL = row["unsubscribe_url"]?.string
         alwaysShow = row["always_show"]?.int == 1
         cartoon = row["cartoon"]?.int == 1
+        checkEvery = row["check_every_s"]?.int
         splitWhen = row["split_when"]?.string.flatMap { try? JSONDecoder().decode(SplitWhen.self, from: Data($0.utf8)) }?.cleaned
         if channel == "feed" {
             address = row["site_url"]?.string ?? row["feed_url"]?.string ?? ""
@@ -137,10 +140,11 @@ extension SourceRecord {
 }
 
 /// The `broadsheet source` arguments for what changed in the editor; empty when nothing did.
-public func sourceEditArguments(from old: SourceRecord, name: String, section: String?, format: SourceFormat, included: Bool, splitWhen: SplitWhen? = nil, alwaysShow: Bool? = nil, cartoon: Bool? = nil) -> [String] {
+public func sourceEditArguments(from old: SourceRecord, name: String, section: String?, format: SourceFormat, included: Bool, splitWhen: SplitWhen? = nil, alwaysShow: Bool? = nil, cartoon: Bool? = nil, checkEvery: Int? = nil) -> [String] {
     var args: [String] = []
     if let alwaysShow, alwaysShow != old.alwaysShow { args.append(alwaysShow ? "--always-show" : "--not-always-show") }
     if let cartoon, cartoon != old.cartoon { args.append(cartoon ? "--cartoon" : "--no-cartoon") }
+    if let checkEvery, checkEvery != old.checkEvery ?? CheckEvery.hour { args += ["--check-every", CheckEvery.argument(checkEvery)] }
     let split = splitWhen?.cleaned
     if format != .normal && split != old.splitWhen { args += ["--split-when", split?.argument ?? "always"] }
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -166,3 +170,27 @@ public struct FeedPreview: Sendable, Decodable, Equatable {
 
 public struct FollowResult: Sendable, Decodable, Equatable { public var id: String; public var name: String }
 public struct SwitchResult: Sendable, Decodable, Equatable { public var feedUrl: String; public var unsubscribe: String? }
+
+/// How often a followed feed is checked: the choices Admin offers, and how they're written.
+public enum CheckEvery {
+    public static let hour = 3600
+    public static let choices = [3600, 6 * 3600, 12 * 3600, 24 * 3600]
+
+    /// 43200 → "Every 12 hours".
+    public static func label(_ seconds: Int) -> String {
+        if seconds % 86_400 == 0 { return seconds == 86_400 ? "Once a day" : "Every \(seconds / 86_400) days" }
+        if seconds % 3600 == 0 { return seconds == 3600 ? "Every hour" : "Every \(seconds / 3600) hours" }
+        return "Every \(seconds / 60) minutes"
+    }
+
+    /// 43200 → "12h", for `broadsheet follow/source --check-every`.
+    public static func argument(_ seconds: Int) -> String {
+        seconds % 86_400 == 0 ? "\(seconds / 86_400)d" : seconds % 3600 == 0 ? "\(seconds / 3600)h" : "\(seconds / 60)m"
+    }
+
+    /// The choices, plus a feed's own setting if it was set to something else from Terminal.
+    public static func options(including current: Int?) -> [Int] {
+        let c = current ?? hour
+        return choices.contains(c) ? choices : (choices + [c]).sorted()
+    }
+}

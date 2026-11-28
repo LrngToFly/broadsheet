@@ -49,7 +49,7 @@ function alreadyFollowing(db: Db, feedUrl: string, siteUrl: string): { id: strin
 export async function follow(
   db: Db,
   url: string,
-  opts: { name?: string; section?: string | null; now: string; doFetch?: typeof fetch },
+  opts: { name?: string; section?: string | null; now: string; doFetch?: typeof fetch; checkEvery?: number | null },
 ): Promise<{ id: string; name: string; preview: FeedPreview }> {
   const site = normaliseUrl(url);
   const preview = await previewFeed(site, opts.doFetch);
@@ -61,9 +61,9 @@ export async function follow(
   for (let n = 2; db.prepare("SELECT 1 FROM sources WHERE id = ?").get(id); n++) id = `${slug(name)}-${n}`;
   // origin 'auto': not from the config file (the table allows only 'config' or 'auto').
   db.prepare(
-    `INSERT INTO sources (id, channel, display_name, site_url, feed_url, status, fixed_section_id, origin, created_at)
-     VALUES (?, 'feed', ?, ?, ?, 'enabled', ?, 'auto', ?)`,
-  ).run(id, name, site, preview.feedUrl, opts.section ?? null, opts.now);
+    `INSERT INTO sources (id, channel, display_name, site_url, feed_url, status, fixed_section_id, origin, created_at, check_every_s)
+     VALUES (?, 'feed', ?, ?, ?, 'enabled', ?, 'auto', ?, ?)`,
+  ).run(id, name, site, preview.feedUrl, opts.section ?? null, opts.now, opts.checkEvery ?? null);
   return { id, name, preview };
 }
 

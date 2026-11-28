@@ -19,6 +19,9 @@ STAGE="$(mktemp -d)/Broadsheet Admin.app"
 mkdir -p "$STAGE/Contents/MacOS"
 cp "$BIN" "$STAGE/Contents/MacOS/BroadsheetAdmin"
 cp Info.plist "$STAGE/Contents/Info.plist"
+# The app icon (icon/make-icon.swift draws it; run that again after changing the drawing).
+mkdir -p "$STAGE/Contents/Resources"
+cp icon/AppIcon.icns "$STAGE/Contents/Resources/AppIcon.icns"
 # Signed for this Mac only ("ad hoc"): enough to run your own build without Gatekeeper prompts.
 codesign --force --sign - "$STAGE"
 

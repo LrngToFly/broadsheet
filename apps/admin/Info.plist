@@ -8,6 +8,8 @@
   <string>Broadsheet Admin</string>
   <key>CFBundleIdentifier</key>
   <string>com.thebroadsheet.admin</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleExecutable</key>
   <string>BroadsheetAdmin</string>
   <key>CFBundlePackageType</key>

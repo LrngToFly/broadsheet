@@ -82,3 +82,12 @@ describe("publishing a widely covered story", () => {
     expect(sameStoryOnce(cards, extra, 0.03)[0]!.score).toBe(0.22);
   });
 });
+
+describe("dates aren't a story", () => {
+  it("doesn't match two newsletters only because their headlines are the same date", () => {
+    const card = (id: string, source: string, title: string) => ({ id, title, source, score: 0.5, kind: "article", alsoIn: [] as string[], publishedAt: "2026-11-27T10:00:00Z" }) as any;
+    const cards = [card("a", "Letters", "November 26, 2026"), card("b", "Market Notes", "Weekly Charts: November 26, 2026")];
+    const extra = new Map(cards.map((c) => [c.id, { links: [], sender: null, piece: false, storyId: null }]));
+    expect(sameStoryOnce(cards, extra, 0.03).map((c) => c.alsoIn)).toEqual([[], []]);
+  });
+});

@@ -44,7 +44,25 @@ export const ItemCard = z.object({
   alsoIn: z.array(z.string()).default([]),
   /** You've read it on one of your devices: after a refresh it's left out of the lists (it's under Read). */
   read: z.boolean().default(false),
+  /** The newest post of a newsletter you always want shown: at the top of its section and the Front Page until read. */
+  pinned: z.boolean().default(false),
 });
+
+/** The cartoon of the day (from a newsletter set to show cartoons), shown at the top of Everything Else when one came in
+ *  the last 24 hours. */
+export const CartoonCard = z.object({
+  /** Path of the cached image in the App Folder. */
+  image: z.string(),
+  alt: z.string().nullable(),
+  /** The caption, when it's text under the drawing. */
+  caption: z.string().nullable(),
+  artist: z.string().nullable(),
+  source: z.string(),
+  publishedAt: z.iso.datetime(),
+  /** The email it came from, if it's in the paper. */
+  itemId: z.string().nullable(),
+});
+export type CartoonCard = z.infer<typeof CartoonCard>;
 export type ItemCard = z.infer<typeof ItemCard>;
 
 /** An item left out of the paper, for the Hidden list (PLAN.md §4.3, "Seeing what was hidden"). */
@@ -74,5 +92,6 @@ export const Edition = z.object({
   items: z.array(ItemCard),
   /** What was left out in the same window, newest first. */
   hidden: z.array(HiddenCard).default([]),
+  cartoon: CartoonCard.nullable().default(null),
 });
 export type Edition = z.infer<typeof Edition>;

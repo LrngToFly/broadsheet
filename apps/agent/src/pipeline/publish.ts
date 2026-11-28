@@ -7,9 +7,9 @@
 // image no current item uses.
 import { readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { Edition, EDITION_SCHEMA_VERSION, FALLBACK_SECTION_ID, HideReason, type Config, type HiddenCard, type ItemCard } from "@broadsheet/shared";
+import { Edition, EDITION_SCHEMA_VERSION, FALLBACK_SECTION_ID, HideReason, type CartoonCard, type Config, type HiddenCard, type ItemCard } from "@broadsheet/shared";
 import type { Db } from "../db/db.ts";
-import { cacheImages } from "../content/images.ts";
+import { cacheImages, imageName } from "../content/images.ts";
 import type { AppFolder } from "../microsoft/onedrive.ts";
 import { score } from "./ranking.ts";
 import { learn } from "./affinity.ts";
@@ -52,7 +52,7 @@ export async function publish(opts: {
     .prepare(
       `SELECT i.*, coalesce(s.display_name, s.id) AS source_name, parent.title AS newsletter_title FROM items i JOIN sources s ON s.id = i.source_id
          LEFT JOIN items parent ON parent.id = i.parent_id
-       WHERE i.kind != 'newsletter' AND i.hidden_by IS NULL AND (i.is_article IS NULL OR i.is_article = 1) AND (i.published_at >= ? OR i.saved = 1)`,
+       WHERE i.kind != 'newsletter' AND i.hidden_by IS NULL AND (i.is_article IS NULL OR i.is_article = 1 OR s.always_show = 1) AND (i.published_at >= ? OR i.saved = 1)`,
     )
     .all(cutoff) as any[];
   // A split newsletter isn't shown itself, but its pieces link to it ("Read the whole newsletter").
@@ -125,6 +125,7 @@ export async function publish(opts: {
       newsletter: r.parent_id && newsletterReady.has(r.parent_id) ? { title: r.newsletter_title, content: `items/${r.parent_id}.html` } : null,
       alsoIn: [],
       read: Boolean(r.read_at),
+      pinned: false, // set below for newsletters you always want shown
     });
   }
 
@@ -136,8 +137,24 @@ export async function publish(opts: {
   );
   cards.splice(0, cards.length, ...shown);
   const hidden = hiddenCards(db, cutoff);
+  // Newsletters you always want shown: the newest post of each (not a brief) is pinned; once you've read it, it goes
+  // like any read article until the next one arrives.
+  const alwaysShown = new Set((db.prepare("SELECT id FROM sources WHERE always_show = 1").all() as { id: string }[]).map((r) => r.id));
+  if (alwaysShown.size) {
+    const sourceOf = new Map(rows.map((r) => [r.id, r.source_id as string]));
+    const newest = new Map<string, ItemCard>();
+    for (const c of cards) {
+      const src = sourceOf.get(c.id);
+      if (!src || !alwaysShown.has(src) || c.kind === "brief") continue;
+      const best = newest.get(src);
+      if (!best || c.publishedAt > best.publishedAt) newest.set(src, c);
+    }
+    for (const c of newest.values()) c.pinned = true;
+  }
+
+  const cartoon = await cartoonOfTheDay(db, now, uploadContent);
   const sections = (db.prepare("SELECT id, name FROM sections ORDER BY sort_order").all() as { id: string; name: string }[]).map((s) => ({ ...s }));
-  const edition = Edition.parse({ schemaVersion: EDITION_SCHEMA_VERSION, generatedAt: now.toISOString(), sections, items: cards, hidden });
+  const edition = Edition.parse({ schemaVersion: EDITION_SCHEMA_VERSION, generatedAt: now.toISOString(), sections, items: cards, hidden, cartoon });
   // The Rules page: your words, suggestions waiting, and your rules (P4). Before edition.json, which is last.
   await appFolder.putJson("rules.json", buildRulesFile(db, config, now));
   await appFolder.putJson("edition.json", edition);
@@ -156,7 +173,9 @@ export async function publish(opts: {
 // ---- The same story in several roundups (PLAN.md §4.4) ---------------------------------------------
 
 const STOP = new Set("the a an and or of to in on for with at by from as is are was were be its it this that new over after into says say amid than more most".split(" "));
-const titleWords = (t: string) => new Set(t.toLowerCase().replace(/[’']s\b/g, "").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3 && !STOP.has(w)));
+/** Dates and numbers say nothing about which story it is ("November 26, 2026" is many newsletters' headline). */
+const DATE_WORDS = /^(\d+|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?|mon(day)?|tue(sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|sat(urday)?|sun(day)?|weekly|daily|edition|issue)$/;
+const titleWords = (t: string) => new Set(t.toLowerCase().replace(/[’']s\b/g, "").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3 && !STOP.has(w) && !DATE_WORDS.test(w)));
 const hostOf = (u: string) => {
   try {
     return new URL(u).hostname.replace(/^www\./, "");
@@ -247,13 +266,36 @@ export function sameStoryOnce(
   return cards.filter((c) => !dropped.has(c.id)).sort((a, b) => b.score - a.score || b.publishedAt.localeCompare(a.publishedAt));
 }
 
+/**
+ * The newest cartoon of the day from the last 24 hours, if any, with its image from the cached copies (the email's
+ * images are uploaded with it). Null when none came in the last 24 hours (e.g. at weekends).
+ */
+async function cartoonOfTheDay(db: Db, now: Date, upload: (row: any) => Promise<boolean>): Promise<CartoonCard | null> {
+  const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+  const row = db
+    .prepare(
+      `SELECT i.*, coalesce(s.display_name, s.id) AS source_name FROM items i JOIN sources s ON s.id = i.source_id
+       WHERE i.cartoon_json IS NOT NULL AND i.published_at >= ? AND coalesce(i.hidden_by, '') != 'user' ORDER BY i.published_at DESC LIMIT 1`,
+    )
+    .get(since) as any;
+  if (!row) return null;
+  if (!(await upload(row))) return null; // its images (the cartoon among them) go up with it
+  const c = JSON.parse(row.cartoon_json) as { imageUrl: string; alt: string | null; caption: string | null; artist: string | null };
+  const fresh = db.prepare("SELECT images_json FROM items WHERE id = ?").get(row.id) as { images_json: string | null };
+  const prefix = imageName(c.imageUrl, "x").replace(/\.x$/, ".");
+  const image = (JSON.parse(fresh.images_json ?? "[]") as string[]).find((p) => p.startsWith(prefix));
+  if (!image) return null;
+  const inPaper = row.kind !== "newsletter" && !row.hidden_by && row.is_article !== 0;
+  return { image, alt: c.alt, caption: c.caption, artist: c.artist, source: row.source_name, publishedAt: new Date(row.published_at).toISOString(), itemId: inPaper ? row.id : null };
+}
+
 /** What was left out of the paper in the same window, and why, for the reader's Hidden list (and Admin's). */
 export function hiddenCards(db: Db, cutoff: string): HiddenCard[] {
   const rows = db
     .prepare(
       `SELECT i.id, i.title, i.author, i.published_at, i.url, i.hidden_by, i.hidden_reason, i.hidden_note, coalesce(s.display_name, s.id) AS source_name, r.wording
        FROM items i JOIN sources s ON s.id = i.source_id LEFT JOIN rules r ON r.id = i.hidden_by
-       WHERE (i.hidden_by IS NOT NULL OR i.is_article = 0) AND i.kind != 'newsletter' AND i.published_at >= ?
+       WHERE (i.hidden_by IS NOT NULL OR (i.is_article = 0 AND s.always_show = 0)) AND i.kind != 'newsletter' AND i.published_at >= ?
        ORDER BY coalesce(i.hidden_at, i.published_at) DESC, i.id`,
     )
     .all(cutoff) as any[];

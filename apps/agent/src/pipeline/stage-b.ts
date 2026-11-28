@@ -80,7 +80,7 @@ export async function stageB(opts: {
   const items = db
     .prepare(
       `SELECT i.id, i.title, i.author, i.channel, i.published_at, i.shown_anyway, i.message_id, i.mail_folder_id, i.section_id, i.section_source, i.source_id, i.ai_attempts,
-              i.kind, i.parent_id, parent.title AS newsletter_title, coalesce(s.display_name, s.id) AS source_name
+              i.kind, i.parent_id, parent.title AS newsletter_title, coalesce(s.display_name, s.id) AS source_name, s.always_show
        FROM items i JOIN sources s ON s.id = i.source_id LEFT JOIN items parent ON parent.id = i.parent_id
        WHERE i.ai_status = 'pending' AND i.hidden_by IS NULL
        ORDER BY i.published_at DESC LIMIT ?`,
@@ -166,7 +166,8 @@ export async function stageB(opts: {
       const sectionSource = fixed ? "fixed" : yours ? "user" : hinted ? "learned" : "ai";
       // You said "Show it again": no rule or "not an article" verdict hides it now.
       const rule = d.hidden_by_rule && !it.shown_anyway ? instructionRules.find((x) => x.id === d.hidden_by_rule) : undefined;
-      const isArticle = d.is_article || Boolean(it.shown_anyway);
+      // You said "Show it again", or you always want this newsletter: Gemma's "not an article" doesn't hide it.
+      const isArticle = d.is_article || Boolean(it.shown_anyway) || Boolean(it.always_show);
       db.prepare(
         `UPDATE items SET summary = ?, key_points_json = ?, tags_json = ?, interest = ?, why_its_here = ?, read_minutes = ?, is_article = ?,
            section_id = ?, section_source = ?, hidden_by = ?, model = ?, ai_status = 'done', ai_attempts = ai_attempts + 1 WHERE id = ?`,

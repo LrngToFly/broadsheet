@@ -105,11 +105,11 @@ import Testing
         CREATE TABLE sections (id TEXT, name TEXT, sort_order INTEGER);
         INSERT INTO sections VALUES ('gardening', 'Gardening', 1), ('current-events', 'Current Events', 0);
         CREATE TABLE sources (id TEXT, display_name TEXT, channel TEXT, status TEXT, format TEXT, looks_like TEXT, fixed_section_id TEXT,
-          last_post_at TEXT, origin TEXT, match_json TEXT, feed_url TEXT, site_url TEXT, unsubscribe_url TEXT, split_when TEXT);
+          last_post_at TEXT, origin TEXT, match_json TEXT, feed_url TEXT, site_url TEXT, unsubscribe_url TEXT, split_when TEXT, always_show INTEGER);
         INSERT INTO sources VALUES
-          ('garden', 'Garden Letter', 'email', 'enabled', 'normal', 'roundup', 'gardening', '\(recent)', 'auto', '{"listId":"garden.substack.com"}', NULL, NULL, 'https://garden.example/unsub', NULL),
-          ('quiet', NULL, 'email', 'muted', 'roundup', 'roundup', NULL, '\(old)', 'config', '{"sender":"hi@quiet.example"}', NULL, NULL, NULL, '{"weekend":true}'),
-          ('blog', 'A Blog', 'feed', 'enabled', 'normal', NULL, NULL, NULL, 'config', NULL, 'https://x/feed', 'https://x', NULL, NULL);
+          ('garden', 'Garden Letter', 'email', 'enabled', 'normal', 'roundup', 'gardening', '\(recent)', 'auto', '{"listId":"garden.substack.com"}', NULL, NULL, 'https://garden.example/unsub', NULL, 1),
+          ('quiet', NULL, 'email', 'muted', 'roundup', 'roundup', NULL, '\(old)', 'config', '{"sender":"hi@quiet.example"}', NULL, NULL, NULL, '{"weekend":true}', 0),
+          ('blog', 'A Blog', 'feed', 'enabled', 'normal', NULL, NULL, NULL, 'config', NULL, 'https://x/feed', 'https://x', NULL, NULL, 0);
         CREATE TABLE source_posts (item_id TEXT, source_id TEXT, published_at TEXT);
         INSERT INTO source_posts VALUES ('1', 'garden', '\(recent)'), ('2', 'garden', '\(recent)'), ('3', 'garden', '\(old)');
         CREATE TABLE preference_records (item_id TEXT, source_id TEXT, rating INTEGER);
@@ -126,6 +126,7 @@ import Testing
         #expect(garden.address == "garden.substack.com")
         #expect(garden.looksLikeRoundup)
         #expect(garden.unsubscribeURL == "https://garden.example/unsub")
+        #expect(garden.alwaysShow && !s[2].alwaysShow)
         #expect(!garden.unsubscribeCandidate) // rated 👍 and 👌
         #expect(garden.silentDays(now: now) == nil)
         let quiet = s[2]
@@ -292,5 +293,14 @@ import Testing
         t.splitWhen = SplitWhen(subject: "Weekend")
         #expect(sourceEditArguments(from: t, name: "N", section: nil, format: .roundup, included: true, splitWhen: nil) == ["source", "n", "--split-when", "always"])
         #expect(sourceEditArguments(from: t, name: "N", section: nil, format: .roundup, included: true, splitWhen: SplitWhen(subject: "Weekend")) == [])
+    }
+}
+
+@Suite struct AlwaysShowTests {
+    @Test func buildsTheAlwaysShowArgument() {
+        let s = SourceRecord(id: "eve", name: "Letters", customName: nil, channel: "email", status: "enabled", format: .normal, looksLikeRoundup: false, fixedSection: nil,
+                             lastPost: nil, postsLast30Days: 0, averageRating: nil, ratings: 0, address: "", fromConfigFile: false, unsubscribeURL: nil)
+        #expect(sourceEditArguments(from: s, name: "Letters", section: nil, format: .normal, included: true, alwaysShow: true) == ["source", "eve", "--always-show"])
+        #expect(sourceEditArguments(from: s, name: "Letters", section: nil, format: .normal, included: true, alwaysShow: false) == [])
     }
 }

@@ -167,3 +167,12 @@ footer p { margin: 0.25rem 0; }
   border-bottom: 1px solid var(--rule); }
 .backbar .back { font-size: 1.05rem; font-weight: 600; color: var(--accent); white-space: nowrap; padding: 0.15rem 0; }
 .backbar-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 0.85rem; }
+
+/* Newsletters you always want shown */
+.pinned-tag { margin: 0 0 0.35rem; }
+/* The cartoon of the day, at the top of Everything Else */
+.cartoon { margin: 0.25rem 0 0.75rem; padding: 0.75rem 0; border-top: 3px double var(--rule); border-bottom: 1px solid var(--rule); text-align: center; }
+.cartoon .in-brief-title { text-align: left; }
+.cartoon-image { display: block; width: 100%; max-width: 32rem; margin: 0.5rem auto; border-radius: 4px; background: #fff; }
+.cartoon-image.img-placeholder { height: 16rem; }
+.cartoon-caption { font-family: var(--serif); font-style: italic; font-size: 1.08rem; margin: 0.4rem 1rem; }

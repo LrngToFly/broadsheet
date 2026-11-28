@@ -550,7 +550,7 @@ async function format(sourceId: string | undefined, value: string | undefined) {
 
 /** Change one newsletter (Admin's Sources page runs this). */
 async function source(id: string | undefined) {
-  const usage = "Usage: broadsheet source <id> [--name \"New name\"] [--section <section id>|none] [--format normal|roundup|multi-section] [--split-when always|'<json>'] [--mute|--unmute]";
+  const usage = "Usage: broadsheet source <id> [--name \"New name\"] [--section <section id>|none] [--format normal|roundup|multi-section] [--split-when always|'<json>'] [--always-show|--not-always-show] [--mute|--unmute]";
   if (!id || id.startsWith("--")) throw new Error(usage);
   const changes: SourceChanges = {};
   if (flag("name") !== undefined) changes.name = flag("name");
@@ -575,6 +575,8 @@ async function source(id: string | undefined) {
       changes.splitWhen = r.data;
     }
   }
+  if (has("always-show")) changes.alwaysShow = true;
+  if (has("not-always-show")) changes.alwaysShow = false;
   if (has("mute")) changes.muted = true;
   if (has("unmute")) changes.muted = false;
   if (!Object.keys(changes).length) throw new Error(usage);
@@ -1204,7 +1206,7 @@ try {
   switch-to-feed <id> [--url <site>] [--preview]
                             get an email newsletter from its feed instead
   sources                   your newsletters, their formats, and which look like roundups
-  source <id> [--name "…"] [--section <id>|none] [--format …] [--mute|--unmute]
+  source <id> [--name "…"] [--section <id>|none] [--format …] [--mute|--unmute] [--always-show|--not-always-show]
          [--split-when always|'{"subject":"…","weekend":true,"looksLike":true}']
                             change one newsletter (current items and emails follow a new section)
   format <id> <format>      normal, roundup (each story a brief) or multi-section (each

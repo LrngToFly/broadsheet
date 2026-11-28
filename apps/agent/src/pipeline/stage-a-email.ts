@@ -11,6 +11,7 @@ import { parseEmail, platformOf } from "../content/email.ts";
 import { cleanArticle, stripTracking } from "../content/clean.ts";
 import type { Mail, MessageSummary } from "../microsoft/mail.ts";
 import { afterFiling } from "./split.ts";
+import { extractCartoon } from "../content/cartoon.ts";
 import { classify, matchSource, newSourceFor, splitSenderName, type Decision, type RuleRow, type SourceRow } from "./classify.ts";
 
 export type MailPort = Pick<Mail, "list" | "mime" | "move" | "markRead">;
@@ -215,6 +216,9 @@ export async function stageAEmail(opts: {
       // still in the paper as one article.
       // Too old for the paper (dropped into _Add): it's only filed, so there's nothing to split.
       if (keep && decision.action === "include" && !tooOld) {
+        // A cartoon of the day (a newsletter set to show cartoons): kept with the item for Everything Else.
+        const cartoon = extractCartoon(article.html);
+        if (cartoon) db.prepare("UPDATE items SET cartoon_json = ? WHERE id = ?").run(JSON.stringify(cartoon), itemId);
         const n = await afterFiling(db, opts.contentDir, itemId, source.id, article.html, nowIso, { subject: email.subject, receivedAt: m.receivedDateTime }).catch((e: Error) => (opts.log?.(`Couldn't split "${email.subject}": ${e.message}`), 0));
         if (n) outcomes.at(-1)!.pieces = n;
       }

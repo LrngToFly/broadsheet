@@ -15,7 +15,9 @@ export const MAX_CANDIDATES = 8;
 type Row = { id: string; source_id: string; source_name: string; title: string; summary: string | null; tags_json: string; published_at: string; story_id: string | null };
 
 const STOP = new Set("the a an and or of to in on for with at by from as is are was were be its it this that new over after into says say amid than more most will has have had not but how why what who your their about week today".split(" "));
-const words = (text: string) => new Set(text.toLowerCase().replace(/[’']s\b/g, "").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3 && !STOP.has(w)));
+/** Dates and numbers say nothing about which story it is ("November 26, 2026" is many newsletters' headline). */
+const DATE_WORDS = /^(\d+|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?|mon(day)?|tue(sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|sat(urday)?|sun(day)?|weekly|daily|edition|issue)$/;
+const words = (text: string) => new Set(text.toLowerCase().replace(/[’']s\b/g, "").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3 && !STOP.has(w) && !DATE_WORDS.test(w)));
 
 const ROW_SQL = `SELECT i.id, i.source_id, coalesce(s.display_name, s.id) AS source_name, i.title, i.summary, i.tags_json, i.published_at, i.story_id
   FROM items i JOIN sources s ON s.id = i.source_id`;

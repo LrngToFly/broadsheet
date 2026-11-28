@@ -323,4 +323,9 @@ export const migrations: string[] = [
   ALTER TABLE items ADD COLUMN story_checked INTEGER NOT NULL DEFAULT 0; -- compared with the others once
   CREATE INDEX items_story ON items(story_id);
   `,
+
+  /* 15: newsletters you always want shown, and the cartoon of the day (2026-11-27) */ `
+  ALTER TABLE sources ADD COLUMN always_show INTEGER NOT NULL DEFAULT 0; -- its newest post is pinned until you've read it
+  ALTER TABLE items ADD COLUMN cartoon_json TEXT;  -- {imageUrl, alt, caption, artist} when the email has a cartoon of the day
+  `,
 ];

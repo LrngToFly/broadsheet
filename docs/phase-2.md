@@ -97,3 +97,9 @@ Code: [eval.ts](../apps/agent/src/ai/eval.ts).
 - **In the paper:** every item in a story says "also in …" (articles and briefs). Each gets a bonus in the ranking per extra newsletter carrying it (0.03 each, at most 4 counted; **Settings → The paper → Widely covered stories** in Admin). Briefs of one story are shown once, the best-scored; a brief and an article on the same story both stay, and articles are never merged.
 - **Each newsletter is still read on its own:** Gemma's summary and interest score for an item don't depend on what other newsletters said.
 
+## Always shown, and the cartoon of the day (2026-11-27)
+
+- **Always show a newsletter:** in Admin's Sources panel, **Always show its newest post** (or `broadsheet source <id> --always-show`). Its newest post goes to the top of its section (above In brief) and of the Front Page, marked 📌 Always shown, until you've read it; after the next refresh it goes like any read article, until the next post arrives. Gemma's "not an article" never hides it. Evening Letter (the Evening Letter) is set this way, with Current Events as its fixed section.
+- **The cartoon of the day:** when an email has a "Today's Cartoon, by …" heading (a newsletter set to show cartoons), the agent keeps the cartoon, its caption (a line of text under the drawing, not part of the image) and the artist. Everything Else shows it at the top, with a link to the whole email, instead of an In brief list. If none arrived in the last 24 hours (e.g. at weekends), it's left out.
+- **Story matching ignores dates:** a headline that's only a date ("November 26, 2026") no longer matches another newsletter's dated headline.
+

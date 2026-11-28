@@ -14,6 +14,8 @@ export type SourceChanges = {
   muted?: boolean;
   /** Which emails a roundup or multi-section newsletter splits; null: every one. */
   splitWhen?: SplitWhen | null;
+  /** Its newest post is always shown (at the top) until you've read it. */
+  alwaysShow?: boolean;
 };
 
 export type EditResult = { changed: string[]; moved: number; errors: string[] };
@@ -79,6 +81,14 @@ export async function editSource(
           result.errors.push(`couldn't move an email: ${(e as Error).message}`);
         }
       }
+    }
+  }
+
+  if (changes.alwaysShow !== undefined) {
+    const was = (db.prepare("SELECT always_show FROM sources WHERE id = ?").get(id) as { always_show: number }).always_show === 1;
+    if (was !== changes.alwaysShow) {
+      db.prepare("UPDATE sources SET always_show = ? WHERE id = ?").run(changes.alwaysShow ? 1 : 0, id);
+      result.changed.push(changes.alwaysShow ? "always shown: its newest post stays at the top until you've read it" : "no longer always shown");
     }
   }
 

@@ -65,6 +65,8 @@ public struct SourceRecord: Sendable, Hashable, Identifiable {
     public var unsubscribeURL: String?
     /// Which emails are split, for a roundup or multi-section newsletter; nil: every one.
     public var splitWhen: SplitWhen? = nil
+    /// Its newest post is always shown, at the top, until you've read it.
+    public var alwaysShow: Bool = false
 
     public var muted: Bool { status == "muted" }
     /// You rate it 👎 often (3 or more ratings, averaging below −0.3): the unsubscribe helper suggests it.
@@ -92,7 +94,7 @@ extension Database {
         return try query(
             """
             SELECT s.id, coalesce(s.display_name, s.id) AS name, s.display_name, s.channel, s.status, s.format, s.looks_like,
-                   s.fixed_section_id, s.last_post_at, s.origin, s.match_json, s.feed_url, s.site_url, s.unsubscribe_url, s.split_when,
+                   s.fixed_section_id, s.last_post_at, s.origin, s.match_json, s.feed_url, s.site_url, s.unsubscribe_url, s.split_when, s.always_show,
                    (SELECT count(*) FROM source_posts p WHERE p.source_id = s.id AND p.published_at >= ?) AS posts30,
                    (SELECT avg(rating) FROM preference_records r WHERE r.source_id = s.id AND r.rating IS NOT NULL) AS avg_rating,
                    (SELECT count(rating) FROM preference_records r WHERE r.source_id = s.id) AS ratings
@@ -120,6 +122,7 @@ extension SourceRecord {
         ratings = row["ratings"]?.int ?? 0
         fromConfigFile = row["origin"]?.string == "config"
         unsubscribeURL = row["unsubscribe_url"]?.string
+        alwaysShow = row["always_show"]?.int == 1
         splitWhen = row["split_when"]?.string.flatMap { try? JSONDecoder().decode(SplitWhen.self, from: Data($0.utf8)) }?.cleaned
         if channel == "feed" {
             address = row["site_url"]?.string ?? row["feed_url"]?.string ?? ""
@@ -131,8 +134,9 @@ extension SourceRecord {
 }
 
 /// The `broadsheet source` arguments for what changed in the editor; empty when nothing did.
-public func sourceEditArguments(from old: SourceRecord, name: String, section: String?, format: SourceFormat, included: Bool, splitWhen: SplitWhen? = nil) -> [String] {
+public func sourceEditArguments(from old: SourceRecord, name: String, section: String?, format: SourceFormat, included: Bool, splitWhen: SplitWhen? = nil, alwaysShow: Bool? = nil) -> [String] {
     var args: [String] = []
+    if let alwaysShow, alwaysShow != old.alwaysShow { args.append(alwaysShow ? "--always-show" : "--not-always-show") }
     let split = splitWhen?.cleaned
     if format != .normal && split != old.splitWhen { args += ["--split-when", split?.argument ?? "always"] }
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)

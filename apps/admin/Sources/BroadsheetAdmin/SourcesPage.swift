@@ -64,6 +64,7 @@ struct SourcesPage: View {
                     if r.source.looksLikeRoundup { Badge("Roundup?", .purple) }
                     if r.source.silentDays() != nil { Badge("Silent", .orange) }
                     if r.source.unsubscribeCandidate { Badge("Unsubscribe?", .red) }
+                    if r.source.alwaysShow { Badge("📌 Always", .teal) }
                 }
             }
             .width(min: 180, ideal: 240)
@@ -147,6 +148,7 @@ struct SourceEditor: View {
     @State private var section: String?
     @State private var format: SourceFormat
     @State private var included: Bool
+    @State private var alwaysShow: Bool
     @State private var splitSome: Bool
     @State private var split: SplitWhen
     @State private var working = false
@@ -163,12 +165,13 @@ struct SourceEditor: View {
         _section = State(initialValue: source.fixedSection)
         _format = State(initialValue: source.format)
         _included = State(initialValue: !source.muted)
+        _alwaysShow = State(initialValue: source.alwaysShow)
         _splitSome = State(initialValue: source.splitWhen != nil)
         _split = State(initialValue: source.splitWhen ?? SplitWhen())
     }
 
     private var args: [String] {
-        sourceEditArguments(from: source, name: name, section: section, format: format, included: included, splitWhen: splitSome ? split : nil)
+        sourceEditArguments(from: source, name: name, section: section, format: format, included: included, splitWhen: splitSome ? split : nil, alwaysShow: alwaysShow)
     }
 
     var body: some View {
@@ -187,6 +190,8 @@ struct SourceEditor: View {
                     ForEach(SourceFormat.allCases) { Text($0.label).tag($0) }
                 }
                 Toggle("Include its emails", isOn: $included)
+                Toggle("Always show its newest post", isOn: $alwaysShow)
+                    .help("At the top of its section and the Front Page until you've read it; then it goes until the next one arrives.")
             } footer: {
                 Text("A new section also moves its current articles, and their emails in Outlook, unless you moved them yourself. Turned off, its emails stay in the Inbox.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -255,7 +260,7 @@ struct SourceEditor: View {
             Section {
                 HStack {
                     Button("Revert") {
-                        name = source.name; section = source.fixedSection; format = source.format; included = !source.muted
+                        name = source.name; section = source.fixedSection; format = source.format; included = !source.muted; alwaysShow = source.alwaysShow
                         splitSome = source.splitWhen != nil; split = source.splitWhen ?? SplitWhen()
                     }
                         .disabled(args.isEmpty || working)

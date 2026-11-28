@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DOMPurify from "dompurify";
 import type { AccountInfo } from "@azure/msal-browser";
-import { NEWS_IN_BRIEF_SECTION_ID, type Edition, type HiddenCard, type HideReason, type ItemCard, type RulesFile, type Suggestion } from "@broadsheet/shared";
+import { FALLBACK_SECTION_ID, NEWS_IN_BRIEF_SECTION_ID, type CartoonCard, type Edition, type HiddenCard, type HideReason, type ItemCard, type RulesFile, type Suggestion } from "@broadsheet/shared";
 import { NeedsSignIn, signIn, signOut, startAuth } from "./auth.ts";
 import { clearData, imageUrl, loadArticle, loadEdition, loadRules, loadStatus, localMode, prefetch, type Status } from "./data.ts";
 import { applyOverlay, useReaderActions, type NewAction, type Overlay, type SettingsOverlay } from "./actions.ts";
@@ -82,6 +82,7 @@ function Card({ item, lead = false, read = false }: { item: ItemCard; lead?: boo
           {item.rating !== null && <span className="mark"> · {RATING_ICON[String(item.rating)]}</span>}
           {item.saved && <span className="mark"> · ★</span>}
         </p>
+        {item.pinned && <span className="tag pinned-tag">📌 Always shown</span>}
         {item.status === "summarized" ? <p className="summary">{item.summary}</p> : <p className="summary pending">{item.opening}</p>}
         {item.status === "pending" && <span className="tag pending-tag">summary pending</span>}
         {item.whyItsHere && <p className="why">{item.whyItsHere}</p>}
@@ -136,7 +137,9 @@ const BRIEFS_SHOWN = 4;
 
 /** The lead story, then News in Brief (Current Events briefs), then the rest of the top stories. */
 function FrontPage({ items, read }: { items: ItemCard[]; read: Set<string> }) {
-  const articles = items.filter((i) => !isBrief(i)).slice(0, 20);
+  // Newsletters you always want shown come first, then the top stories.
+  const all = items.filter((i) => !isBrief(i));
+  const articles = [...all.filter((i) => i.pinned), ...all.filter((i) => !i.pinned).slice(0, 20)];
   const briefs = items.filter((i) => isBrief(i) && i.section === NEWS_IN_BRIEF_SECTION_ID);
   const news = (
     <BriefList
@@ -157,19 +160,53 @@ function FrontPage({ items, read }: { items: ItemCard[]; read: Set<string> }) {
 }
 
 /** A section's page: its briefs first (In brief), then its articles. */
-function SectionPage({ id, items, read }: { id: string; items: ItemCard[]; read: Set<string> }) {
+function SectionPage({ id, items, read, cartoon }: { id: string; items: ItemCard[]; read: Set<string>; cartoon: CartoonCard | null }) {
   const briefs = items.filter(isBrief);
-  const articles = items.filter((i) => !isBrief(i));
+  // Newsletters you always want shown come first, above the briefs; then the briefs and the other articles.
+  const pinned = items.filter((i) => !isBrief(i) && i.pinned);
+  const articles = items.filter((i) => !isBrief(i) && !i.pinned);
+  const pinnedList = pinned.length > 0 && <div className="list">{pinned.map((i) => <Card key={i.id} item={i} read={read.has(i.id)} />)}</div>;
+  // Everything Else: the cartoon of the day at the top, and no In brief list.
+  if (id === FALLBACK_SECTION_ID) {
+    return (
+      <>
+        {pinnedList}
+        {cartoon && <CartoonPanel cartoon={cartoon} />}
+        {(articles.length > 0 || (!cartoon && !pinned.length)) && <ItemList items={articles} read={read} />}
+      </>
+    );
+  }
   return (
     <>
+      {pinnedList}
       <BriefList
         title="In brief"
         items={briefs.slice(0, BRIEFS_SHOWN)}
         read={read}
         more={briefs.length > BRIEFS_SHOWN ? { href: `#/b/${encodeURIComponent(id)}`, label: `All ${briefs.length} briefs →` } : undefined}
       />
-      {(articles.length > 0 || briefs.length === 0) && <ItemList items={articles} read={read} />}
+      {(articles.length > 0 || (briefs.length === 0 && !pinned.length)) && <ItemList items={articles} read={read} />}
     </>
+  );
+}
+
+/** The cartoon of the day (a newsletter set to show cartoons), with its caption, which is text under the drawing. */
+function CartoonPanel({ cartoon }: { cartoon: CartoonCard }) {
+  return (
+    <figure className="cartoon">
+      <h2 className="in-brief-title">Cartoon of the Day</h2>
+      <CachedImage path={cartoon.image} className="cartoon-image" alt={cartoon.alt ?? "Cartoon"} />
+      {cartoon.caption && <figcaption className="cartoon-caption">{cartoon.caption}</figcaption>}
+      <p className="meta">
+        {[cartoon.artist && `by ${cartoon.artist}`, cartoon.source].filter(Boolean).join(" · ")}
+        {cartoon.itemId && (
+          <>
+            {" · "}
+            <a href={`#/i/${encodeURIComponent(cartoon.itemId)}`}>the whole email</a>
+          </>
+        )}
+      </p>
+    </figure>
   );
 }
 
@@ -744,7 +781,7 @@ export function App() {
         {state.kind === "loading" && <p className="empty">Fetching today's edition…</p>}
         {state.kind === "error" && <p className="error">Couldn't load the edition: {state.message}</p>}
         {edition && route.page === "front" && <FrontPage items={unreadItems} read={read} />}
-        {edition && route.page === "section" && <SectionPage id={route.id} items={unreadItems.filter((i) => i.section === route.id)} read={read} />}
+        {edition && route.page === "section" && <SectionPage id={route.id} items={unreadItems.filter((i) => i.section === route.id)} read={read} cartoon={edition.cartoon ?? null} />}
         {edition && route.page === "briefs" && (
           <BriefList title={`In brief: ${edition.sections.find((s) => s.id === route.id)?.name ?? route.id}`} items={unreadItems.filter((i) => isBrief(i) && i.section === route.id)} read={read} />
         )}

@@ -47,10 +47,15 @@ export async function rotateLogs(dir: string, now = new Date()): Promise<void> {
   }
 }
 
-/** Keep the Mac from idle-sleeping until this process exits (macOS's own `caffeinate`). */
+/**
+ * Keep the Mac awake (not the display) until this process exits, with macOS's own `caffeinate`. -i alone isn't enough:
+ * launchd also starts runs during macOS's short background ("dark") wakes, which ignore an idle-sleep hold and go back
+ * to sleep within seconds, cutting the network mid-run. -s holds off system sleep too (on mains power, as a Mac mini
+ * always is).
+ */
 export function keepAwakeWhileRunning(): void {
   try {
-    const child = spawn("/usr/bin/caffeinate", ["-i", "-w", String(process.pid)], { stdio: "ignore", detached: true });
+    const child = spawn("/usr/bin/caffeinate", ["-i", "-s", "-w", String(process.pid)], { stdio: "ignore", detached: true });
     child.on("error", () => {});
     child.unref();
   } catch {

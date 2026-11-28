@@ -39,9 +39,9 @@ main, .masthead, footer { max-width: 46rem; margin-inline: auto; padding-inline:
 .masthead-title { font-family: var(--serif); font-weight: 700; font-size: 1.9rem; letter-spacing: -0.01em; text-decoration: none; }
 .dateline { margin: 0; color: var(--muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; }
 .icon { border: 1px solid var(--rule); background: transparent; color: var(--ink); width: 2.2rem; height: 2.2rem; border-radius: 50%; font-size: 1.1rem; }
-.sections { display: flex; gap: 0.25rem; overflow-x: auto; padding: 0.5rem 0 0.6rem; scrollbar-width: none; }
-.sections::-webkit-scrollbar { display: none; }
-.sections a { white-space: nowrap; text-decoration: none; padding: 0.3rem 0.75rem; border-radius: 999px; font-size: 0.9rem; color: var(--muted); }
+/* The section tabs wrap onto a second line when they don't fit, so none is ever cut off. */
+.sections { display: flex; flex-wrap: wrap; gap: 0.15rem 0.2rem; padding: 0.45rem 0 0.55rem; }
+.sections a { white-space: nowrap; text-decoration: none; padding: 0.28rem 0.65rem; border-radius: 999px; font-size: 0.9rem; color: var(--muted); }
 .sections a.on { background: var(--accent); color: var(--paper); }
 
 /* Cards */
@@ -176,3 +176,10 @@ footer p { margin: 0.25rem 0; }
 .cartoon-image { display: block; width: 100%; max-width: 32rem; margin: 0.5rem auto; border-radius: 4px; background: #fff; }
 .cartoon-image.img-placeholder { height: 16rem; }
 .cartoon-caption { font-family: var(--serif); font-style: italic; font-size: 1.08rem; margin: 0.4rem 1rem; }
+
+/* Phones: the tabs can take two or three rows, so the masthead scrolls away with the page instead of staying
+   pinned (on an article, the Back bar stays at the top). */
+@media (max-width: 40rem) {
+  .masthead { position: static; }
+  .sections a { font-size: 0.86rem; padding: 0.26rem 0.55rem; }
+}

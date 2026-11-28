@@ -136,22 +136,66 @@ function BriefList({ title, items, read, more }: { title: string; items: ItemCar
 const BRIEFS_SHOWN = 4;
 
 /** The lead story, then News in Brief (Current Events briefs), then the rest of the top stories. */
-function FrontPage({ items, read }: { items: ItemCard[]; read: Set<string> }) {
-  // Newsletters you always want shown come first, then the top stories.
+/** What the Front Page shows: newsletters you always want shown, the top 20 stories, and the top News in Brief.
+ *  The section pages leave these out, so nothing on the Front Page appears twice. */
+function frontPage(items: ItemCard[]) {
   const all = items.filter((i) => !isBrief(i));
   const articles = [...all.filter((i) => i.pinned), ...all.filter((i) => !i.pinned).slice(0, 20)];
-  const briefs = items.filter((i) => isBrief(i) && i.section === NEWS_IN_BRIEF_SECTION_ID);
+  const allBriefs = items.filter((i) => isBrief(i) && i.section === NEWS_IN_BRIEF_SECTION_ID);
+  return { articles, briefs: allBriefs.slice(0, BRIEFS_SHOWN), moreBriefs: allBriefs.length - Math.min(allBriefs.length, BRIEFS_SHOWN) };
+}
+
+/** At most three sentences (two if they're already long): the gist of a post for a compact panel. */
+function shortSummary(item: ItemCard): string {
+  const text = (item.status === "summarized" && item.summary ? item.summary : item.opening).replace(/\s+/g, " ").trim();
+  const sentences = text.match(/[^.!?]+[.!?]+["”’)]*(\s|$)/g)?.map((x) => x.trim()) ?? [text];
+  let out = "";
+  for (const [n, sentence] of sentences.entries()) {
+    if (n >= 3 || (n >= 2 && out.length > 220)) break;
+    out = out ? `${out} ${sentence}` : sentence;
+  }
+  return out.length > 420 ? `${out.slice(0, 417).trimEnd()}…` : out;
+}
+
+/** Newsletters you always want shown: a compact panel at the top of the Front Page, like the cartoon of the day. */
+function PinnedPanel({ items, read }: { items: ItemCard[]; read: Set<string> }) {
+  return (
+    <>
+      {items.map((i) => (
+        <section key={i.id} className={`pinned-panel${read.has(i.id) ? " read" : ""}`} aria-label={i.source}>
+          <h2 className="in-brief-title">{i.source}</h2>
+          <a href={`#/i/${encodeURIComponent(i.id)}`}>
+            <h3>{i.title}</h3>
+            <p className="summary">{shortSummary(i)}</p>
+            <p className="meta">
+              {[i.author && i.author !== i.source ? i.author : null, ago(i.publishedAt), `${i.readMinutes} min read`].filter(Boolean).join(" · ")}
+              {i.rating !== null && <span className="mark"> · {RATING_ICON[String(i.rating)]}</span>}
+              {" · "}
+              <span className="read-on">Read it →</span>
+            </p>
+          </a>
+        </section>
+      ))}
+    </>
+  );
+}
+
+function FrontPage({ items, read }: { items: ItemCard[]; read: Set<string> }) {
+  const { articles: all, briefs, moreBriefs } = frontPage(items);
+  const pinned = all.filter((i) => i.pinned);
+  const articles = all.filter((i) => !i.pinned);
   const news = (
     <BriefList
       title="News in Brief"
-      items={briefs.slice(0, BRIEFS_SHOWN)}
+      items={briefs}
       read={read}
-      more={briefs.length > BRIEFS_SHOWN ? { href: `#/b/${NEWS_IN_BRIEF_SECTION_ID}`, label: `All ${briefs.length} briefs →` } : undefined}
+      more={moreBriefs > 0 ? { href: `#/b/${NEWS_IN_BRIEF_SECTION_ID}`, label: `${moreBriefs} more brief${moreBriefs === 1 ? "" : "s"} →` } : undefined}
     />
   );
-  if (!articles.length) return briefs.length ? news : <ItemList items={[]} read={read} />;
+  if (!articles.length) return pinned.length || briefs.length ? <><PinnedPanel items={pinned} read={read} />{news}</> : <ItemList items={[]} read={read} />;
   return (
     <>
+      <PinnedPanel items={pinned} read={read} />
       <ItemList items={articles.slice(0, 1)} read={read} />
       {news}
       {articles.length > 1 && <div className="list">{articles.slice(1).map((i) => <Card key={i.id} item={i} read={read.has(i.id)} />)}</div>}
@@ -725,11 +769,18 @@ export function App() {
   useEffect(() => setReadAtLoad(new Set(readRef.current)), [rawEdition]);
   const unreadItems = useMemo(() => (edition ? edition.items.filter((i) => !readAtLoad.has(i.id)) : []), [edition, readAtLoad]);
   const readItems = useMemo(() => (edition ? edition.items.filter((i) => read.has(i.id)) : []), [edition, read]);
+  // What's on the Front Page isn't repeated in the sections.
+  const onFrontPage = useMemo(() => {
+    const f = frontPage(unreadItems);
+    return new Set([...f.articles, ...f.briefs].map((i) => i.id));
+  }, [unreadItems]);
+  const sectionItems = useMemo(() => unreadItems.filter((i) => !onFrontPage.has(i.id)), [unreadItems, onFrontPage]);
 
+  // A tab for each section with something of its own (not all on the Front Page); Everything Else also for the cartoon.
   const sectionsWithItems = useMemo(() => {
     if (!edition) return [];
-    return edition.sections.filter((s) => edition.items.some((i) => i.section === s.id));
-  }, [edition]);
+    return edition.sections.filter((s) => sectionItems.some((i) => i.section === s.id) || (s.id === FALLBACK_SECTION_ID && edition.cartoon));
+  }, [edition, sectionItems]);
 
   if (state.kind === "starting") return <div className="splash">The Broadsheet</div>;
 
@@ -781,9 +832,9 @@ export function App() {
         {state.kind === "loading" && <p className="empty">Fetching today's edition…</p>}
         {state.kind === "error" && <p className="error">Couldn't load the edition: {state.message}</p>}
         {edition && route.page === "front" && <FrontPage items={unreadItems} read={read} />}
-        {edition && route.page === "section" && <SectionPage id={route.id} items={unreadItems.filter((i) => i.section === route.id)} read={read} cartoon={edition.cartoon ?? null} />}
+        {edition && route.page === "section" && <SectionPage id={route.id} items={sectionItems.filter((i) => i.section === route.id)} read={read} cartoon={edition.cartoon ?? null} />}
         {edition && route.page === "briefs" && (
-          <BriefList title={`In brief: ${edition.sections.find((s) => s.id === route.id)?.name ?? route.id}`} items={unreadItems.filter((i) => isBrief(i) && i.section === route.id)} read={read} />
+          <BriefList title={`In brief: ${edition.sections.find((s) => s.id === route.id)?.name ?? route.id}`} items={sectionItems.filter((i) => isBrief(i) && i.section === route.id)} read={read} />
         )}
         {edition && route.page === "read" && <ItemList items={readItems} read={new Set()} empty="Nothing read yet. Articles you open leave the lists after the next refresh, and gather here." />}
         {edition && route.page === "saved" && <ItemList items={saved} read={read} empty="Nothing saved. Saved articles are kept after the others expire." />}

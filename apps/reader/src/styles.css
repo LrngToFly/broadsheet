@@ -183,3 +183,12 @@ footer p { margin: 0.25rem 0; }
   .masthead { position: static; }
   .sections a { font-size: 0.86rem; padding: 0.26rem 0.55rem; }
 }
+
+/* Newsletters you always want shown: a compact panel at the top of the Front Page */
+.pinned-panel { margin: 0.25rem 0 0.5rem; padding: 0.7rem 0 0.6rem; border-top: 3px double var(--rule); border-bottom: 1px solid var(--rule); }
+.pinned-panel a { display: block; text-decoration: none; }
+.pinned-panel h3 { font-family: var(--serif); font-size: 1.05rem; line-height: 1.25; margin: 0.15rem 0 0.25rem; }
+.pinned-panel .summary { font-size: 0.95rem; -webkit-line-clamp: 4; }
+.pinned-panel .meta { margin: 0.3rem 0 0; }
+.pinned-panel .read-on { color: var(--accent); }
+.pinned-panel.read h3 { color: var(--muted); }
